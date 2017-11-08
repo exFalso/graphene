@@ -159,17 +159,13 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
             if (fd == PAL_IDX_POISON)
                 continue;
 
-            if ((flags & 01001) == 00001) {
+            if ((flags & 01001) == 00001)
                 __FD_SET(fd, &rfds);
-                __FD_SET(fd, &efds);
-            }
 
-            if ((flags & 01110) == 00010) {
+            if ((flags & 01110) == 00010)
                 __FD_SET(fd, &wfds);
-                __FD_SET(fd, &efds);
-            }
 
-            if (__FD_ISSET(fd, &efds)) {
+            if (__FD_ISSET(fd, &rfds) || __FD_ISSET(fd, &wfds)) {
                 if (nfds <= fd)
                     nfds = fd + 1;
             }
@@ -210,6 +206,21 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
                 !__FD_ISSET(fd, &wfds) &&
                 !__FD_ISSET(fd, &efds))
                 continue;
+
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    ret = ocall_fionread(fd);
+                    if (ret <= 0) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
 
             polled_hdl = polled_hdl ? : handle;
 

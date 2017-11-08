@@ -242,7 +242,7 @@ int ocall_read (int fd, void * buf, unsigned int count)
 int ocall_write (int fd, const void * buf, unsigned int count)
 {
     int retval = 0;
-    void * obuf = NULL;
+    const void * obuf = NULL;
 
     if (buf && !sgx_is_within_enclave(buf, count))
         obuf = buf;
@@ -598,7 +598,7 @@ int ocall_sock_send (int sockfd, const void * buf, unsigned int count,
                      const struct sockaddr * addr, unsigned int addrlen)
 {
     int retval = 0;
-    void * obuf = NULL;
+    const void * obuf = NULL;
 
     if (buf && !sgx_is_within_enclave(buf, count))
         obuf = buf;
@@ -743,18 +743,17 @@ int ocall_sleep (unsigned long * microsec)
     return retval;
 }
 
-int ocall_select (int nfds, __kernel_fd_set * readfds,
-                  __kernel_fd_set * writefds, __kernel_fd_set * errorfds,
-                  uint64_t * timeout)
+int ocall_select (int nfds, __kernel_fd_set * rfds, __kernel_fd_set * wfds,
+                  __kernel_fd_set * efds, uint64_t * timeout)
 {
     int retval = 0;
-    int fdsize = __NFDBITS * __FD_ELT(nfds);
+    int fdsize = (__FD_ELT(nfds) + 1) * __NFDBITS / 8;
     ms_ocall_select_t * ms;
     OCALLOC(ms, ms_ocall_select_t *, sizeof(*ms));
 
-    ms->ms_readfds = readfds ? COPY_TO_USER(readfds, fdsize) : NULL;
-    ms->ms_writefds = writefds ? COPY_TO_USER(writefds, fdsize) : NULL;
-    ms->ms_errorfds = errorfds ? COPY_TO_USER(errorfds, fdsize) : NULL;
+    ms->ms_rfds = rfds ? COPY_TO_USER(rfds, fdsize) : NULL;
+    ms->ms_wfds = wfds ? COPY_TO_USER(wfds, fdsize) : NULL;
+    ms->ms_efds = efds ? sgx_ocalloc(fdsize) : NULL;
     ms->ms_nfds = nfds;
     ms->ms_timeout = timeout ? *timeout : OCALL_NO_TIMEOUT;
 
@@ -762,12 +761,12 @@ int ocall_select (int nfds, __kernel_fd_set * readfds,
     if (retval == -EINTR && timeout)
         *timeout = ms->ms_timeout;
     if (retval >= 0) {
-        if (ms->ms_readfds)
-            COPY_FROM_USER(readfds, ms->ms_readfds, fdsize);
-        if (ms->ms_writefds)
-            COPY_FROM_USER(writefds, ms->ms_writefds, fdsize);
-        if (ms->ms_errorfds)
-            COPY_FROM_USER(errorfds, ms->ms_errorfds, fdsize);
+        if (rfds)
+            COPY_FROM_USER(rfds, ms->ms_rfds, fdsize);
+        if (wfds)
+            COPY_FROM_USER(wfds, ms->ms_wfds, fdsize);
+        if (efds)
+            COPY_FROM_USER(efds, ms->ms_efds, fdsize);
     }
     OCALL_EXIT();
     return retval;

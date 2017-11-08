@@ -242,9 +242,9 @@ typedef struct {
 } ms_ocall_sleep_t;
 
 typedef struct {
-    __kernel_fd_set * ms_readfds;
-    __kernel_fd_set * ms_writefds;
-    __kernel_fd_set * ms_errorfds;
+    __kernel_fd_set * ms_rfds;
+    __kernel_fd_set * ms_wfds;
+    __kernel_fd_set * ms_efds;
     int ms_nfds;
     uint64_t ms_timeout;
 } ms_ocall_select_t;

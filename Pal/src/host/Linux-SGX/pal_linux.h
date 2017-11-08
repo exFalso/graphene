@@ -153,14 +153,14 @@ typedef struct {
 
         /* the header part / also the additional part in GCM */
         struct {
-            uint64_t epoch;
+            uint32_t epoch;
             /* skip the type and versions */
             uint32_t msg_len;
         } __attribute__((packed)) hdr;
 
         struct {
             uint32_t salt;
-            uint64_t nonce;
+            uint32_t nonce;
         } __attribute__((packed)) iv;
     } __attribute__((packed))
     ctxi, ctxo;
@@ -258,7 +258,7 @@ char * __hex2str(void * hex, int size)
 #define DBG_O   0x40
 
 #ifdef DEBUG
-# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S)
+# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S|DBG_O)
 #else
 # define DBG_LEVEL (DBG_E)
 #endif

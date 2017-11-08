@@ -1000,14 +1000,6 @@ int _DkStreamSecureInit (PAL_SESSION_KEY * key, unsigned which,
     if (which == PAL_STREAM_CLIENT)
         sec_ctx->ctxo.hdr.epoch |= SERVER_SIDE_EPOCH;
 
-    ret = stream_context_alloc_buffer(&sec_ctx->ctxi, PAL_SEC_INIT_BUFSIZE);
-    if (ret < 0)
-        return ret;
-
-    ret = stream_context_alloc_buffer(&sec_ctx->ctxo, PAL_SEC_INIT_BUFSIZE);
-    if (ret < 0)
-        return ret;
-
     *context = sec_ctx;
     return 0;
 }
@@ -1030,6 +1022,9 @@ int _DkStreamSecureMigrate (PAL_SEC_CONTEXT * input, PAL_SEC_CONTEXT ** context)
                               sizeof(sec_ctx->key))) < 0)
         return ret;
 
+    sec_ctx->ctxi.buf = sec_ctx->ctxo.buf = NULL;
+    sec_ctx->ctxi.bufsize = sec_ctx->ctxo.bufsize = 0;
+    sec_ctx->ctxi.bufoffset = sec_ctx->ctxo.bufoffset = 0;
     *context = sec_ctx;
     return 0;
 }
@@ -1049,6 +1044,10 @@ int _DkStreamSecureRead (PAL_HANDLE handle,
     struct pal_stream_context * ctx = &sec_ctx->ctxi;
     int ret;
 
+    ret = stream_context_alloc_buffer(ctx, PAL_SEC_INIT_BUFSIZE);
+    if (ret < 0)
+        return ret;
+
     if (ctx->bufoffset < sizeof(ctx->hdr)) {
         ret = read(handle, offset, ctx->bufsize - ctx->bufoffset,
                    ctx->buf + ctx->bufoffset);
@@ -1059,9 +1058,9 @@ int _DkStreamSecureRead (PAL_HANDLE handle,
         ctx->bufoffset += ret;
         if (ctx->bufoffset < sizeof(ctx->hdr))
             return -PAL_ERROR_TRYAGAIN;
-
-        memcpy(&ctx->hdr, ctx->buf, sizeof(ctx->hdr));
     }
+
+    memcpy(&ctx->hdr, ctx->buf, sizeof(ctx->hdr));
 
     stream_context_alloc_buffer(ctx, ctx->hdr.msg_len);
     if (ctx->bufsize < ctx->hdr.msg_len)
@@ -1114,10 +1113,13 @@ int _DkStreamSecureRead (PAL_HANDLE handle,
                                 (uint8_t *) buffer, &dec_len,
                                 tag, GCM_TAG_SIZE);
 
-    ctx->hdr.epoch++;
+    if (ret < 0)
+        SGX_DBG(DBG_O, "[DEC %08lx] authentication failed\n", ctx->hdr.epoch);
+
+    ctx->hdr.epoch = (ctx->hdr.epoch & SERVER_SIDE_EPOCH)|
+                     ((ctx->hdr.epoch + 1) & ~SERVER_SIDE_EPOCH);
     ctx->bufoffset -= ctx->hdr.msg_len;
     memmove(ctx->buf, ctx->buf + ctx->hdr.msg_len, ctx->bufoffset);
-    assert((ctx->hdr.epoch & ~SERVER_SIDE_EPOCH) < MAX_EPOCH);
 
 out:
     return ret < 0 ? ret : dec_len;
@@ -1141,7 +1143,12 @@ int _DkStreamSecureWrite (PAL_HANDLE handle,
             __hex2str(&ctx->hdr, sizeof(ctx->hdr)),
             __hex2str(&ctx->iv,  sizeof(ctx->iv)));
 
-    stream_context_alloc_buffer(ctx, msg_len);
+    ret = stream_context_alloc_buffer(ctx,
+                                      msg_len > PAL_SEC_INIT_BUFSIZE ?
+                                      msg_len : PAL_SEC_INIT_BUFSIZE);
+    if (ret < 0)
+        return ret;
+
     uint8_t * output = ctx->buf;
     uint8_t * enc = output + sizeof(ctx->hdr);
     uint64_t enc_len = 0;
@@ -1182,8 +1189,8 @@ int _DkStreamSecureWrite (PAL_HANDLE handle,
         sent += ret;
     }
 
-    ctx->hdr.epoch++;
-    assert((ctx->hdr.epoch & ~SERVER_SIDE_EPOCH) < MAX_EPOCH);
+    ctx->hdr.epoch = (ctx->hdr.epoch & SERVER_SIDE_EPOCH)|
+                     ((ctx->hdr.epoch + 1) & ~SERVER_SIDE_EPOCH);
 
 out:
     return ret < 0 ? ret : count;

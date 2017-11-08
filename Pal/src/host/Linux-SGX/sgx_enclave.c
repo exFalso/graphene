@@ -26,7 +26,7 @@ void thread_exit (void);
 
 static int sgx_ocall_exit(void * pms)
 {
-    int exit_status = (int) pms;
+    int exit_status = ((unsigned long) pms) & 255;
     ODEBUG(OCALL_EXIT, exit_status);
     if (exit_status & OCALL_EXIT_WHOLE_PROCESS) {
         INLINE_SYSCALL(exit_group, 1, (exit_status & ~OCALL_EXIT_WHOLE_PROCESS));
@@ -624,13 +624,28 @@ static int sgx_ocall_select(void * pms)
     int ret;
     ODEBUG(OCALL_SELECT, ms);
     struct timespec * ts = NULL;
+
     if (ms->ms_timeout != OCALL_NO_TIMEOUT) {
         ts = __alloca(sizeof(struct timespec));
         ts->tv_sec = ms->ms_timeout / 1000000;
         ts->tv_nsec = (ms->ms_timeout - ts->tv_sec * 1000000) * 1000;
     }
-    ret = INLINE_SYSCALL(pselect6, 6, ms->ms_nfds, ms->ms_readfds,
-                         ms->ms_writefds, ms->ms_errorfds, ts, NULL);
+
+    if (ms->ms_efds) {
+        int fdsize = (__FD_ELT(ms->ms_nfds) + 1) * __NFDBITS / 8;
+        memset(ms->ms_efds, 0, fdsize);
+        if (ms->ms_rfds)
+            for (int i = 0 ; i < fdsize ; i++)
+                ((uint8_t *) ms->ms_efds)[i] |= ((uint8_t *) ms->ms_rfds)[i];
+        if (ms->ms_wfds)
+            for (int i = 0 ; i < fdsize ; i++)
+                ((uint8_t *) ms->ms_efds)[i] |= ((uint8_t *) ms->ms_wfds)[i];
+    }
+
+    ret = INLINE_SYSCALL(pselect6, 6, ms->ms_nfds,
+                         ms->ms_rfds, ms->ms_wfds, ms->ms_efds,
+                         ts, NULL);
+
     return IS_ERR(ret) ? unix_to_pal_error(ERRNO(ret)) : ret;
 }
 
