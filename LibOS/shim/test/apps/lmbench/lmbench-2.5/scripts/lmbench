@@ -204,12 +204,18 @@ echo Memory mappings >> ${OUTPUT}
 for i in 1m 4m 16m 64m
 do	run_repeat_latency lat_mmap -n $i --
 done
-echo Memory mappings >> ${OUTPUT}
 for i in 1m 4m 16m 64m
 do	run_repeat_latency lat_mmap $i --
 done
 
-#0,4,10KB create/delete
+for i in 1k 4k 16k 64k
+do	run_repeat_latency lat_brk -n $i
+done
+for i in 1k 4k 16k 64k
+do	run_repeat_latency lat_brk $i
+done
+
+0,4,10KB create/delete
 date >> ${OUTPUT}
 echo Calculating file system latency >> ${OUTPUT}
 echo '"File system latency' 1>&2
