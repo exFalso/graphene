@@ -108,6 +108,7 @@ main(int ac, char **av)
 				perror("lat_select: Could not open socket");
 				exit(1);
 			}
+			if (fd >= nfds) nfds = fd + 1;
 			FD_SET(fd, &set);
 		}
 	} else if (streq(av[1], "file")) {
@@ -128,6 +129,7 @@ main(int ac, char **av)
 				perror(open);
 				exit(1);
 			}
+			if (fd >= nfds) nfds = fd + 1;
 			FD_SET(fd, &set);
 		}
 		unlink(fname);

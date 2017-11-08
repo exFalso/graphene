@@ -260,6 +260,13 @@ run_repeat_bandwidth bw_unix
 
 run_repeat_bandwidth bw_pipe
 
+date >> ${OUTPUT}
+echo Scheduling latency >> ${OUTPUT}
+run_repeat_latency lat_pthread cond
+for conc in 1 2 4 8
+do	run_repeat_latency lat_pthread mutex $conc
+done
+
 if [ "x$SYSCALL_ONLY" = "x1" ]; then exit; fi
 
 date >> ${OUTPUT}

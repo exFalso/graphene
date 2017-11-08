@@ -13,6 +13,20 @@ char	*id = "$Id$\n";
 #include <pthread.h>
 #include <string.h>
 
+void *
+thread_null(void *p)
+{
+	return NULL;
+}
+
+void
+do_create(void)
+{
+	pthread_t thread;
+	pthread_create(&thread, NULL, thread_null, NULL);
+	pthread_join(&thread, NULL);
+}
+
 int state = 0;
 
 void
@@ -78,7 +92,11 @@ main(int ac, char **av)
 
 	if (ac < 2) goto usage;
 
-	if (!strcmp("cond", av[1])) {
+	if (!strcmp("create", av[1])) {
+		BENCH(do_create(), 0);
+		micro("pthread_create() latency", get_n());
+		exit(0);
+	} else if (!strcmp("cond", av[1])) {
 		pthread_cond_t cv[2];
 		pthread_mutex_t mut[2];
 		void * obj[4] = { &cv[0], &cv[1], &mut[0], &mut[1] };
