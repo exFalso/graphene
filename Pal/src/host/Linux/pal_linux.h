@@ -26,7 +26,7 @@
 #include "pal_internal.h"
 #include "pal_linux_error.h"
 
-#define PAL_LOADER RUNTIME_FILE("pal-Linux")
+#define PAL_LOADER RUNTIME_FILE("libpal-Linux.so")
 
 #include <sys/syscall.h>
 #include <sigset.h>
