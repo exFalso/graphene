@@ -45,15 +45,18 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
     long ret = -ENOMEM;
     bool reserved = false;
 
-    if (addr + length < addr) {
+    if ((addr && !ALIGNED(addr)) || !length || (offset && !ALIGNED(offset)))
         return (void *) -EINVAL;
-    }
+
+    if (addr + length < addr)
+        return (void *) -EINVAL;
 
     assert(!(flags & (VMA_UNMAPPED|VMA_TAINTED)));
 
     if (flags & MAP_32BIT)
         return (void *) -ENOSYS;
 
+    length = ALIGN_UP(length);
     int pal_alloc_type = 0;
 
     if ((flags & MAP_FIXED) || addr) {
@@ -64,12 +67,13 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
                   addr, length);
 
             if (!(flags & MAP_FIXED))
-                addr = NULL;
+                goto no_addr;
         }
     }
 
     if (!addr) {
-        addr = get_unmapped_vma(ALIGN_UP(length), flags);
+no_addr:
+        addr = get_unmapped_vma(length, flags);
 
         if (addr) {
             reserved = true;
@@ -77,13 +81,11 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
             void * cur_stack = current_stack();
             assert(cur_stack < addr || cur_stack > addr + length);
         }
+    } else {
+        ret = bkeep_mmap(addr, length, prot, flags|VMA_UNMAPPED, NULL, offset, NULL);
+        if (ret < 0)
+            goto no_addr;
     }
-
-    void * mapped = ALIGN_DOWN((void *) addr);
-    void * mapped_end = ALIGN_UP((void *) addr + length);
-
-    addr = mapped;
-    length = mapped_end - mapped;
 
     if (flags & MAP_ANONYMOUS) {
         addr = (void *) DkVirtualMemoryAlloc(addr, length, pal_alloc_type,
@@ -120,13 +122,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
         }
     }
 
-    if (addr != mapped) {
-        mapped = ALIGN_DOWN((void *) addr);
-        mapped_end = ALIGN_UP((void *) addr + length);
-    }
-
-    ret = bkeep_mmap((void *) mapped, mapped_end - mapped, prot,
-                     flags, hdl, offset, NULL);
+    ret = bkeep_mmap(addr, length, prot, flags, hdl, offset, NULL);
     assert(!ret);
     if (hdl)
         put_handle(hdl);
@@ -134,20 +130,29 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
 
 free_reserved:
     if (reserved)
-        bkeep_munmap((void *) mapped, mapped_end - mapped, &flags);
+        bkeep_munmap(addr, length, &flags);
     return (void *) ret;
 }
 
 int shim_do_mprotect (void * addr, size_t len, int prot)
 {
-    uintptr_t mapped = ALIGN_DOWN((uintptr_t) addr);
-    uintptr_t mapped_end = ALIGN_UP((uintptr_t) addr + len);
     int flags = 0;
 
-    if (bkeep_mprotect((void *) mapped, mapped_end - mapped, prot, &flags) < 0)
+    if ((addr && !ALIGNED(addr)) || !len)
+        return -EINVAL;
+
+    len = ALIGN_UP(len);
+
+    if (bkeep_mprotect(addr, len, prot, &flags) < 0)
         return -EACCES;
 
-    if (!DkVirtualMemoryProtect((void *) mapped, mapped_end - mapped, prot))
+    PAL_FLG pal_prot = PAL_PROT_READ;
+    if (prot & PROT_WRITE)
+        pal_prot |= PAL_PROT_WRITE;
+    if (prot & PROT_EXEC)
+        pal_prot |= PAL_PROT_EXEC;
+
+    if (!DkVirtualMemoryProtect(addr, len, pal_prot))
         return -PAL_ERRNO;
 
     return 0;
@@ -157,6 +162,11 @@ int shim_do_munmap (void * addr, size_t len)
 {
     struct shim_vma * tmp = NULL;
 
+    if ((addr && !ALIGNED(addr)) || !len)
+        return -EINVAL;
+
+    len = ALIGN_UP(len);
+
     if (lookup_overlap_vma(addr, len, &tmp) < 0) {
         debug("can't find addr %p - %p in map, quit unmapping\n",
               addr, addr + len);
@@ -165,13 +175,10 @@ int shim_do_munmap (void * addr, size_t len)
         return -EFAULT;
     }
 
-    uintptr_t mapped = ALIGN_DOWN((uintptr_t) addr);
-    uintptr_t mapped_end = ALIGN_UP((uintptr_t) addr + len);
     int flags = 0;
-
-    if (bkeep_munmap((void *) mapped, mapped_end - mapped, &flags) < 0)
+    if (bkeep_munmap(addr, len, &flags) < 0)
         return -EACCES;
 
-    DkVirtualMemoryFree((void *) mapped, mapped_end - mapped);
+    DkVirtualMemoryFree(addr, len);
     return 0;
 }

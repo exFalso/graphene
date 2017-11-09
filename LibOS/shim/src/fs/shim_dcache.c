@@ -336,18 +336,27 @@ void add_dcache (struct shim_dentry * dent, HASHTYPE * hashptr)
     unlock(dcache_lock);
 }
 
+DEFINE_PROFILE_CATAGORY(lookup_dcache, path_lookup);
+DEFINE_PROFILE_INTERVAL(hash_dentry_name,    lookup_dcache);
+DEFINE_PROFILE_INTERVAL(compare_dentry_name, lookup_dcache);
+DEFINE_PROFILE_INTERVAL(dentry_get_path,     lookup_dcache);
+
 struct shim_dentry *
 __lookup_dcache (struct shim_dentry * start, const char * name, int namelen,
                  const char * path, int pathlen, HASHTYPE * hashptr)
 {
+    BEGIN_PROFILE_INTERVAL();
     HASHTYPE hash = hash_dentry(start, name, namelen);
     struct shim_dentry * dent, * found = NULL;
     struct hlist_node * node;
     struct hlist_head * head = &dcache_htable[DCACHE_HASH(hash)];
+    SAVE_PROFILE_INTERVAL(hash_dentry_name);
 
     /* walk through all the nodes in the hash bucket, find the droids we're
        looking for */
     hlist_for_each_entry(dent, node, head, hlist) {
+        BEGIN_PROFILE_INTERVAL();
+
         if ((dent->state & DENTRY_MOUNTPOINT) ||
             dent->rel_path.hash != hash)
             continue;
@@ -365,19 +374,22 @@ __lookup_dcache (struct shim_dentry * start, const char * name, int namelen,
                 continue;
         }
 
+        SAVE_PROFILE_INTERVAL(compare_dentry_name);
+
         if (path && pathlen && filename != path) {
             const char * fullpath;
             int fullpathlen;
             fullpath = dentry_get_path(dent, true, &fullpathlen);
             if (pathlen > fullpathlen)
                 continue;
-            fullpath += fullpathlen - pathlen;
-            if (fullpath[-1] != '/')
+            if (pathlen < fullpathlen &&
+                fullpath[fullpathlen - pathlen - 1] != '/')
                 continue;
-            if (memcmp(fullpath, path, pathlen))
+            if (memcmp(fullpath + fullpathlen - pathlen, path, pathlen))
                 continue;
         }
 
+        SAVE_PROFILE_INTERVAL(dentry_get_path);
         get_dentry(dent);
         found = dent;
         break;

@@ -781,7 +781,8 @@ static int chroot_read (struct shim_handle * hdl, void * buf,
 
     struct shim_file_handle * file = &hdl->info.file;
 
-    if (file->buf_type == FILEBUF_MAP) {
+    if (file->buf_type == FILEBUF_MAP &&
+        count < CHROOT_SKIP_BUFFER_SIZE) {
         ret = map_read(hdl, buf, count);
         if (ret != -EACCES)
             goto out;
@@ -817,7 +818,8 @@ static int chroot_write (struct shim_handle * hdl, const void * buf,
 
     struct shim_file_handle * file = &hdl->info.file;
 
-    if (hdl->info.file.buf_type == FILEBUF_MAP) {
+    if (hdl->info.file.buf_type == FILEBUF_MAP &&
+        count < CHROOT_SKIP_BUFFER_SIZE) {
         ret = map_write(hdl, buf, count);
         if (ret != -EACCES)
             goto out;

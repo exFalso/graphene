@@ -22,6 +22,10 @@
 
 #define EXECVE_RTLD                 1
 
+#define DCACHE_HASH_SIZE            1024
+
+#define CHROOT_SKIP_BUFFER_SIZE     2048
+
 /* debug message printout */
 #define DEBUGBUF_SIZE               256
 #define DEBUGBUF_BREAK              0
