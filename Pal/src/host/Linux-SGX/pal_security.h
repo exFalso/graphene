@@ -21,6 +21,7 @@
 #define PAL_SECURITY_H
 
 #include "pal.h"
+#include "pal_linux.h"
 #include "sgx_arch.h"
 
 typedef char PAL_SEC_STR[255];
@@ -72,6 +73,14 @@ struct pal_sec {
 
 #ifdef IN_ENCLAVE
 extern struct pal_sec pal_sec;
+#endif
+
+#ifdef IN_ENCLAVE
+struct pal_enclave_sec {
+    PAL_SESSION_KEY rpc_key;
+};
+
+extern struct pal_enclave_sec pal_enclave_sec;
 #endif
 
 #define GRAPHENE_TEMPDIR        "/tmp/graphene"

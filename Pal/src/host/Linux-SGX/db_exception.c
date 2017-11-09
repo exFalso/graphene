@@ -170,6 +170,9 @@ void restore_sgx_context (sgx_context_t * uc)
     uc->rsp -= 8;
     *(uint64_t *) uc->rsp = uc->rip;
 
+    void * ustack_top = GET_ENCLAVE_TLS(ustack_top);
+    SET_ENCLAVE_TLS(ustack, ustack_top);
+
     /* now pop the stack */
     asm volatile ("mov %0, %%rsp\n"
                   "pop %%rax\n"
@@ -363,6 +366,9 @@ void _DkHandleExternelEvent (PAL_NUM event, sgx_context_t * uc)
     if (event == PAL_EVENT_RESUME &&
         frame && frame->func == DkObjectsWaitAny)
         return;
+
+    void * ustack_top = GET_ENCLAVE_TLS(ustack_top);
+    SET_ENCLAVE_TLS(ustack, ustack_top);
 
     if (!frame) {
         frame = __alloca(sizeof(struct pal_frame));

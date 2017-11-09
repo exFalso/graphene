@@ -57,9 +57,6 @@
 int _DkMutexLockTimeout (struct mutex_handle * m, int timeout)
 {
     int ret = 0;
-#ifdef DEBUG_MUTEX
-    int tid = INLINE_SYSCALL(gettid, 0);
-#endif
 
     if (timeout == -1)
         return -_DkMutexLock(m);
@@ -81,32 +78,19 @@ int _DkMutexLockTimeout (struct mutex_handle * m, int timeout)
                 xchg(&m->b.contended, 0);
                 goto out;
             }
-#ifdef DEBUG_MUTEX
-            printf("futex failed (err = %d)\n", ERRNO(ret));
-#endif
             goto out;
         }
     }
 
 success:
-#ifdef DEBUG_MUTEX
-    m->owner = tid;
-#endif
     ret = 0;
 out:
-#ifdef DEBUG_MUTEX
-    if (ret < 0)
-        printf("mutex failed (%s, tid = %d)\n", PAL_STRERROR(ret), tid);
-#endif
     return ret;
 }
 
 int _DkMutexLock (struct mutex_handle * m)
 {
     int ret = 0, i;
-#ifdef DEBUG_MUTEX
-    int tid = INLINE_SYSCALL(gettid, 0);
-#endif
 
     /* Spin and try to take lock */
     for (i = 0; i < MUTEX_SPINLOCK_TIMES; i++) {
@@ -117,39 +101,22 @@ int _DkMutexLock (struct mutex_handle * m)
 
     // Mutex is union of u8 array and u32; this assumes a little-endian machine.
     while (xchg(&m->u, 257) & 1) {
-        // This is broken. The mutex is in enclave memory, the URTS can't
-        // do FUTEX_WAIT on it. This call will always fail and the next level
-        // up needs to retry.
         ret = ocall_futex((int *) m, FUTEX_WAIT, 257, NULL);
         if (ret < 0 &&
             ret != -PAL_ERROR_TRYAGAIN) {
-#ifdef DEBUG_MUTEX
-            printf("futex failed (err = %d)\n", ERRNO(ret));
-#endif
             goto out;
         }
     }
 
 success:
-#ifdef DEBUG_MUTEX
-    m->owner = tid;
-#endif
     ret = 0;
 out:
-#ifdef DEBUG_MUTEX
-    if (ret < 0)
-        printf("mutex failed (%s, tid = %d)\n", PAL_STRERROR(ret), tid);
-#endif
     return ret;
 }
 
 int _DkMutexUnlock (struct mutex_handle * m)
 {
     int ret = 0, i;
-
-#ifdef DEBUG_MUTEX
-    m->owner = 0;
-#endif
 
     /* Unlock, and if not contended then exit. */
     if ((m->u == 1) && (cmpxchg(&m->u, 1, 0) == 1)) return 0;

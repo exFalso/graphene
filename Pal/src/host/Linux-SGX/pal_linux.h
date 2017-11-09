@@ -24,6 +24,7 @@
 #include "pal_linux_defs.h"
 #include "pal.h"
 #include "api.h"
+#include "pal_crypto.h"
 
 #include "linux_types.h"
 #include "sgx_arch.h"
@@ -118,18 +119,75 @@ void session_key_to_mac_key (PAL_SESSION_KEY * session_key,
         m[i] = s[i] ^ s[16 + i];
 }
 
+typedef int (*handle_read_t)  (PAL_HANDLE, int, int, void *);
+typedef int (*handle_write_t) (PAL_HANDLE, int, int, const void *);
+typedef int (*check_mrenclave_t) (sgx_arch_hash_t *, void *, void *);
+
 /* exchange and establish a 256-bit session key */
-int _DkStreamKeyExchange (PAL_HANDLE stream, PAL_SESSION_KEY * key);
+int _DkStreamKeyExchange (PAL_HANDLE stream, PAL_SESSION_KEY * key,
+                          handle_read_t read, handle_write_t write);
 
 /* request and respond for remote attestation */
 int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
-                                 int (*check_mrenclave) (sgx_arch_hash_t *,
-                                                         void *, void *),
+                                 handle_read_t read, handle_write_t write,
+                                 check_mrenclave_t check_mrenclave,
                                  void * check_param);
 int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
-                                 int (*check_mrenclave) (sgx_arch_hash_t *,
-                                                         void *, void *),
+                                 handle_read_t read, handle_write_t write,
+                                 check_mrenclave_t check_mrenclave,
                                  void * check_param);
+
+
+#define PAL_SEC_INIT_BUFSIZE    (16*4096)
+
+typedef struct {
+    PAL_SESSION_KEY key;
+
+    /* the following mimic a simplified SSL header */
+    struct pal_stream_context {
+        LIB_GCM_CONTEXT ctx;
+        void * buf;
+        uint64_t bufsize;
+        uint64_t bufoffset;
+
+        /* the header part / also the additional part in GCM */
+        struct {
+            uint32_t epoch;
+            /* skip the type and versions */
+            uint32_t msg_len;
+        } __attribute__((packed)) hdr;
+
+        struct {
+            uint32_t salt;
+            uint32_t nonce;
+        } __attribute__((packed)) iv;
+    } __attribute__((packed))
+    ctxi, ctxo;
+
+} PAL_SEC_CONTEXT;
+
+#define SERVER_SIDE_EPOCH       \
+    ({ struct pal_stream_context * c; 1ULL << (sizeof(c->hdr.epoch) * 8 - 1); })
+
+#define MAX_EPOCH   (SERVER_SIDE_EPOCH - 1)
+
+#define PAL_STREAM_SERVER       1
+#define PAL_STREAM_CLIENT       2
+#define PAL_STREAM_PRIVATE      3
+
+int _DkStreamSecureInit (PAL_SESSION_KEY * key, unsigned which,
+                         PAL_SEC_CONTEXT ** context);
+
+int _DkStreamSecureMigrate (PAL_SEC_CONTEXT * input, PAL_SEC_CONTEXT ** context);
+
+int _DkStreamSecureFree (PAL_SEC_CONTEXT * context);
+
+int _DkStreamSecureRead  (PAL_HANDLE handle,
+                          PAL_SEC_CONTEXT * sec_ctx, handle_read_t read,
+                          int offset, int count, void * buffer);
+int _DkStreamSecureWrite (PAL_HANDLE handle,
+                          PAL_SEC_CONTEXT * sec_ctx, handle_write_t write,
+                          int offset, int count, const void * buffer);
 
 /* enclave state used for generating report */
 #define PAL_ATTESTATION_DATA_SIZE   24
@@ -158,7 +216,7 @@ static inline __attribute__((always_inline))
 char * __hex2str(void * hex, int size)
 {
     static char * ch = "0123456789abcdef";
-    char * str = __alloca(size * 2);
+    char * str = __alloca(size * 2 + 1);
 
     for (int i = 0 ; i < size ; i++) {
         unsigned char h = ((unsigned char *) hex)[i];
@@ -166,7 +224,7 @@ char * __hex2str(void * hex, int size)
         str[i * 2 + 1] = ch[h % 16];
     }
 
-    str[size * 2 - 1] = 0;
+    str[size * 2] = 0;
     return str;
 }
 
@@ -196,9 +254,10 @@ char * __hex2str(void * hex, int size)
 #define DBG_S   0x08
 #define DBG_P   0x10
 #define DBG_M   0x20
+#define DBG_O   0x40
 
 #ifdef DEBUG
-# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S)
+# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S|DBG_O)
 #else
 # define DBG_LEVEL (DBG_E)
 #endif

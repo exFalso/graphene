@@ -22,10 +22,16 @@
 
 #define ODEBUG(code, ms) do {} while (0)
 
+void thread_exit (void);
+
 static int sgx_ocall_exit(void * pms)
 {
-    ODEBUG(OCALL_EXIT, NULL);
-    INLINE_SYSCALL(exit, 1, 0);
+    int exit_status = ((unsigned long) pms) & 255;
+    ODEBUG(OCALL_EXIT, exit_status);
+    if (exit_status & OCALL_EXIT_WHOLE_PROCESS) {
+        INLINE_SYSCALL(exit_group, 1, (exit_status & ~OCALL_EXIT_WHOLE_PROCESS));
+    }
+    thread_exit();
     return 0;
 }
 
@@ -71,9 +77,7 @@ static int sgx_ocall_unmap_untrusted(void * pms)
 {
     ms_ocall_unmap_untrusted_t * ms = (ms_ocall_unmap_untrusted_t *) pms;
     ODEBUG(OCALL_UNMAP_UNTRUSTED, ms);
-    INLINE_SYSCALL(munmap, 2, ALLOC_ALIGNDOWN(ms->ms_mem),
-                   ALLOC_ALIGNUP(ms->ms_mem + ms->ms_size) -
-                   ALLOC_ALIGNDOWN(ms->ms_mem));
+    INLINE_SYSCALL(munmap, 2, ms->ms_mem, ms->ms_size);
     return 0;
 }
 
@@ -216,6 +220,14 @@ static int sgx_ocall_wake_thread(void * pms)
 {
     ODEBUG(OCALL_WAKE_THREAD, pms);
     return pms ? interrupt_thread(pms) : clone_thread();
+}
+
+int wait_thread (void * tcs);
+
+static int sgx_ocall_wait_thread(void * pms)
+{
+    ODEBUG(OCALL_WAIT_THREAD, pms);
+    return wait_thread(pms);
 }
 
 int sgx_create_process (const char * uri,
@@ -672,6 +684,7 @@ void * ocall_table[OCALL_NR] = {
         [OCALL_MKDIR]           = (void *) sgx_ocall_mkdir,
         [OCALL_GETDENTS]        = (void *) sgx_ocall_getdents,
         [OCALL_WAKE_THREAD]     = (void *) sgx_ocall_wake_thread,
+        [OCALL_WAIT_THREAD]     = (void *) sgx_ocall_wait_thread,
         [OCALL_CREATE_PROCESS]  = (void *) sgx_ocall_create_process,
         [OCALL_FUTEX]           = (void *) sgx_ocall_futex,
         [OCALL_SOCKETPAIR]      = (void *) sgx_ocall_socketpair,

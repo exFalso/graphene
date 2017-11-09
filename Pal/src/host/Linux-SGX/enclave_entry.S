@@ -258,6 +258,37 @@ sgx_ocall:
 	mov $EEXIT, %rax
 	ENCLU
 
+
+	.global sgx_ocall_exit
+	.type sgx_ocall_exit, @function
+
+sgx_ocall_exit:
+	xor %rdx, %rdx
+	xor %r8, %r8
+	xor %r9, %r9
+	xor %r10, %r10
+	xor %r11, %r11
+	xor %r12, %r12
+	xor %r13, %r13
+	xor %r14, %r14
+	xor %r15, %r15
+	xor %rbp, %rbp
+
+	mov %gs:SGX_USTACK, %rsp
+	and $STACK_ALIGN, %rsp
+
+	mov %gs:SGX_EXIT_TARGET, %rbx
+	mov %gs:SGX_AEP, %rcx
+
+	xor %rax, %rax
+	mov %rax, %gs:SGX_EXIT_TARGET
+	mov %rax, %gs:SGX_USTACK
+	mov %rax, %gs:SGX_USTACK_TOP
+
+	mov $EEXIT, %rax
+	ENCLU
+
+
 .Lreturn_from_ocall:
 	# PAL convention:
 	# RDI - return value

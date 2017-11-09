@@ -11,7 +11,9 @@
 #include <linux/socket.h>
 #include <linux/poll.h>
 
-int ocall_exit (void);
+#define OCALL_EXIT_WHOLE_PROCESS    (1<<16)
+
+int ocall_exit (int exit_status);
 
 int ocall_print_string (const char * str, unsigned int length);
 
@@ -82,6 +84,8 @@ int ocall_sock_setopt (int sockfd, int level, int optname,
 int ocall_sock_shutdown (int sockfd, int how);
 
 int ocall_wake_thread (void * tcs);
+
+int ocall_wait_thread (void * tcs);
 
 int ocall_create_process (const char * uri,
                           int nargs, const char ** args,
