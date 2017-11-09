@@ -320,10 +320,6 @@ int ioctl_set_graphene (int device, struct config_store * config, int ndefault,
     p->policies[n].value = "/dev/gipc";
     n++;
 
-    p->policies[n].type = GRAPHENE_FS_PATH | ro;
-    p->policies[n].value = PAL_LOADER;
-    n++;
-
     p->npolicies = n;
 
     ret = INLINE_SYSCALL(ioctl, 3, device, GRM_SET_SANDBOX, p);

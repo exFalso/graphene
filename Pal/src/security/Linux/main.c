@@ -444,6 +444,8 @@ int set_sandbox (int device, struct config_store * sandbox_config,
           .value = &pal_sec_addr->mcast_port, },
         { .type  = GRAPHENE_FS_PATH | GRAPHENE_FS_READ,
           .value = "/proc/meminfo", },
+        { .type  = GRAPHENE_FS_PATH | GRAPHENE_FS_READ,
+          .value = PAL_LOADER, },
     };
 
     return ioctl_set_graphene(device, sandbox_config,
