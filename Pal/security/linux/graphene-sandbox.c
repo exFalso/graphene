@@ -112,17 +112,27 @@ static int __common_file_perm(struct graphene_info *gi,
 			      const char *path, u32 mask)
 {
 	struct graphene_path *p;
-	int len = strlen(path);
-	int rv = 0;
+	char *tmp;
+	int len, rv = 0;
+
+	tmp = (char *) __getname();
+	if (unlikely(!tmp))
+		return -ENOMEM;
+
+	rv = norm_path(path, (char *) tmp, PATH_MAX);
+	if (rv < 0)
+		goto out;
+
+	len = strlen(tmp);
 
 	list_for_each_entry(p, &gi->gi_paths, list) {
-		rv = check_path(p, path, len, mask, false);
+		rv = check_path(p, tmp, len, mask, false);
 		if (rv)
 			goto out;
 	}
 
 	list_for_each_entry(p, &gi->gi_rpaths, list) {
-		rv = check_path(p, path, len, mask, true);
+		rv = check_path(p, tmp, len, mask, true);
 		if (rv)
 			goto out;
 	}
@@ -133,12 +143,13 @@ out:
 		rv = 0;
 #ifdef GRAPHENE_DEBUG
 		printk(KERN_INFO "Graphene: PID %d PATH %s PASSED\n",
-		       current->pid, path);
+		       current->pid, tmp);
 #endif
 	} else {
 		printk(KERN_INFO "Graphene: PID %d PATH %s DENIED\n",
-		       current->pid, path);
+		       current->pid, tmp);
 	}
+	__putname((struct filename *) tmp);
 	return rv;
 }
 
