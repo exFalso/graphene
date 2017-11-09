@@ -27,7 +27,25 @@
 #define PAL_DEBUG_H
 
 #include "pal.h"
-#include <assert.h>
+#include "api.h"
+
+#ifdef IN_PAL
+
+#ifndef assert
+void __assert (void);
+
+#define assert(val)                                                      \
+    do {                                                                 \
+        if (!(val)) {                                                    \
+            printf("Assertion failed (%s): %s: %d\n", #val,              \
+                   __FILE__, __LINE__);                                  \
+            __assert();                                                  \
+            _DkProcessExit(1);                                           \
+        }                                                                \
+    } while (0)
+#endif
+
+#endif /* IN_PAL */
 
 int pal_printf (const char *fmt, ...);
 
