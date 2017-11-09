@@ -16,6 +16,6 @@
 
 #define USE_ARCH_RDRAND         0
 
-#define BLOCK_SIGFAULT          0
+#define BLOCK_SIGFAULT          1
 
 #endif /* PAL_LINUX_DEFS_H */

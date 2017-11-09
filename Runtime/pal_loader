@@ -38,7 +38,7 @@ if [ "$PERF" == "1" ]; then
 fi
 
 if [ "$PROFILE" == "1" ]; then
-	PREFIX="sudo perf record"
+	PREFIX="perf record"
 fi
 
 if [ "$MEMUSG" == "1" ]; then

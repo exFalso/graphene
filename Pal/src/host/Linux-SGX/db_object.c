@@ -107,6 +107,21 @@ static int _DkObjectWaitOne (PAL_HANDLE handle, uint64_t timeout)
                 !__FD_ISSET(fd, &efds))
                 continue;
 
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    ret = ocall_fionread(fd);
+                    if (ret <= 0) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
+
             if (__FD_ISSET(fd, &wfds))
                 HANDLE_HDR(handle)->flags |= WRITEABLE(i);
             if (__FD_ISSET(fd, &efds))

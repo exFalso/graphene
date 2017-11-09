@@ -41,6 +41,10 @@
 
 #define DEFAULT_QUANTUM 500
 
+#ifndef FIONREAD
+# define FIONREAD 0x541B
+#endif
+
 /* internally to wait for one object. Also used as a shortcut to wait
  *  on events and semaphores.
  *
@@ -126,6 +130,22 @@ static int _DkObjectWaitOne (PAL_HANDLE handle, uint64_t timeout)
                 !__FD_ISSET(fd, &wfds) &&
                 !__FD_ISSET(fd, &efds))
                 continue;
+
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    uint64_t val = 0;
+                    ret = INLINE_SYSCALL(ioctl, 3, fd, FIONREAD, &val);
+                    if (IS_ERR(ret) || !val) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
 
             if (__FD_ISSET(fd, &wfds))
                 HANDLE_HDR(handle)->flags |= WRITEABLE(i);
@@ -247,6 +267,22 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
                 !__FD_ISSET(fd, &wfds) &&
                 !__FD_ISSET(fd, &efds))
                 continue;
+
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    uint64_t val = 0;
+                    ret = INLINE_SYSCALL(ioctl, 3, fd, FIONREAD, &val);
+                    if (IS_ERR(ret) || !val) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
 
             polled_hdl = polled_hdl ? : handle;
 

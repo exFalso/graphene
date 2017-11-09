@@ -118,7 +118,6 @@ struct shim_fs_ops {
 #define DENTRY_INO_UPDATED  0x2000  /* ino updated */
 #define DENTRY_ANCESTER     0x4000
 
-#define DCACHE_HASH_SIZE    1024
 #define DCACHE_HASH(hash) ((hash) & (DCACHE_HASH_SIZE - 1))
 
 struct shim_dentry {

@@ -465,6 +465,14 @@ static int path_lookup_dcache (struct shim_dentry * start, const char * path,
         memcpy(fullpath, startpath, startpathlen);
     }
 
+    /* ensure that the fullpath ends with a '/' */
+    if (!startpathlen || fullpath[startpathlen - 1] != '/')
+        fullpath[startpathlen++] = '/';
+
+    /* ensure that path does not begin with a '/' */
+    if (*path == '/')
+        path++;
+
     char * name = fullpath + startpathlen;
     int namelen;
 
@@ -743,7 +751,6 @@ int open_namei (struct shim_handle * hdl, struct shim_dentry * start,
     BEGIN_PROFILE_INTERVAL();
     lock(dcache_lock);
 
-#if 0
     err = path_lookup_dcache(start, path, lookup_flags|LOOKUP_OPEN,
                              &look.dentry, cur_thread);
 
@@ -760,7 +767,6 @@ int open_namei (struct shim_handle * hdl, struct shim_dentry * start,
         SAVE_PROFILE_INTERVAL(end_open_namei);
         return err;
     }
-#endif
 
     if (look.dentry) {
         if (look.dentry->state & DENTRY_NEGATIVE) {
