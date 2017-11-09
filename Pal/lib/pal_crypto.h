@@ -2,7 +2,6 @@
 /* vim: set ts=4 sw=4 et tw=78 fo=cqt wm=0: */
 
 /* Copyright (C) 2014 OSCAR lab, Stony Brook University
-   Copyright (C) 2017 Fortanix, Inc.
 
    This file is part of Graphene Library OS.
 
@@ -41,6 +40,7 @@
 #include "crypto/wolfssl/sha256.h"
 #include "crypto/wolfssl/dh.h"
 #include "crypto/wolfssl/rsa.h"
+
 typedef SHA256 LIB_SHA256_CONTEXT;
 
 #define DH_SIZE 128

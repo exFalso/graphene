@@ -188,7 +188,9 @@ int mbedtls_cipher_setkey( mbedtls_cipher_context_t *ctx, const unsigned char *k
 
     if( ( ctx->cipher_info->flags & MBEDTLS_CIPHER_VARIABLE_KEY_LEN ) == 0 &&
         (int) ctx->cipher_info->key_bitlen != key_bitlen )
+    {
         return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
+    }
 
     ctx->key_bitlen = key_bitlen;
     ctx->operation = operation;

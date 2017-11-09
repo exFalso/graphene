@@ -44,6 +44,8 @@ static int RandomWrapper(void *private, unsigned char *data, size_t size)
     return _DkRandomBitsRead(data, size) != size;
 }
 
+#define BITS_PER_BYTE 8
+
 int lib_SHA256Init(LIB_SHA256_CONTEXT *context)
 {
     mbedtls_sha256_init(context);
