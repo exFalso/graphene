@@ -1,7 +1,7 @@
 /*
- * lat_mmap.c - time how fast a mapping can be made and broken down
+ * lat_brk.c - time how fast a mapping can be made and broken down
  *
- * Usage: mmap size file
+ * Usage: brk size
  *
  * XXX - If an implementation did lazy address space mapping, this test
  * will make that system look very good.  I haven't heard of such a system.
@@ -18,7 +18,7 @@ char	*id = "$Id$\n";
 
 #define	PSIZE	(16<<10)
 #define	N	10
-#define	STRIDE	(10*PSIZE)
+#define	STRIDE	(32)
 #define	MINSIZE	(STRIDE*2)
 
 #define	CHK(x)	if ((x) == -1) { perror("x"); exit(1); }
@@ -28,37 +28,25 @@ char	*id = "$Id$\n";
  * mappings reported.
  */
 void
-mapit(int fd, size_t size, int random)
+mapit(size_t size, int access)
 {
 	char	*p, *where, *end;
 	char	c = size & 0xff;
 
-	if (fd == -1) {
-		where = mmap(0, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
-	} else {
-#ifdef	MAP_FILE
-		where = mmap(0, size, PROT_READ|PROT_WRITE, MAP_FILE|MAP_SHARED, fd, 0);
-#else
-		where = mmap(0, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
-#endif
-	}
+	where = sbrk(size);
 
 	if ((int)where == -1) {
-		perror("mmap");
+		perror("brk");
 		exit(1);
 	}
-	if (random == 1) {
+	if (access) {
 		end = where + size;
 		for (p = where; p < end; p += STRIDE) {
 			*p = c;
 		}
-	} else if (!random) {
-		end = where + (size / N);
-		for (p = where; p < end; p += PSIZE) {
-			*p = c;
-		}
 	}
-	munmap(where, size);
+
+	sbrk(-size);
 }
 
 int
@@ -66,30 +54,22 @@ main(int ac, char **av)
 {
 	int	fd = -1;
 	size_t	size;
-	int	random = 0;
+	int	access = 1;
 	char	*prog = av[0];
 
-	if (ac != 3 && ac != 4) {
-		fprintf(stderr, "usage: %s [-r|-n] size [file|--]\n", prog);
+	if (ac != 2 && ac != 3) {
+		fprintf(stderr, "usage: %s [-n] size\n", prog);
 		exit(1);
 	}
-	if (strcmp("-r", av[1]) == 0) {
-		random = 1;
-		ac--, av++;
-	}
 	if (strcmp("-n", av[1]) == 0) {
-		random = -1;
+		access = 0;
 		ac--, av++;
 	}
 	size = bytes(av[1]);
-	if (size < MINSIZE) {	
+	if (size < MINSIZE) {
 		return (1);
 	}
-	if (strcmp(av[2], "--")) {
-		CHK(fd = open(av[2], O_CREAT|O_RDWR, 0666));
-		CHK(ftruncate(fd, size));
-	}
-	BENCH(mapit(fd, size, random), 0);
+	BENCH(mapit(size, access), REAL_SHORT);
 	micromb(size, get_n());
 	return(0);
 }

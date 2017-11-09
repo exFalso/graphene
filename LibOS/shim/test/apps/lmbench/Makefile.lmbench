@@ -1,9 +1,9 @@
 manifests = $(patsubst ../../../%.template,%,$(wildcard ../../../*.manifest.template)) manifest
-lmbench_tests = lat_syscall lat_connect lat_fcntl \
+lmbench_tests = lat_syscall lat_connect lat_fcntl lat_brk \
 		lat_select lat_fs lat_mmap lat_fifo lat_mem_rd lat_msg \
 		lat_tcp lat_udp lat_unix_connect lat_pagefault \
 		bw_tcp bw_mem bw_unix lat_proc lat_ctx lat_rpc \
-		lat_unix lat_sig lat_http lat_pipe \
+		lat_unix lat_sig lat_http lat_pipe lat_pthread \
 		bw_pipe bw_file_rd bw_mmap_rd lmhttp lmdd \
 		sh.manifest hello.manifest
 

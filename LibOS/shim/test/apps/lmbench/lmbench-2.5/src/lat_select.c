@@ -20,7 +20,7 @@ doit(int n, fd_set *set)
 {
 	fd_set	nosave = *set;
 	static	struct timeval tv;
-	select(n, 0, &nosave, 0, &tv);
+	select(n, &nosave, 0, 0, &tv);
 }
 
 void
@@ -64,6 +64,8 @@ main(int ac, char **av)
 		exit(1);
 	}
 
+	if (ac == 3) N = atoi(av[2]);
+
 	if (streq(av[1], "tcp")) {
 		report = report_tcp;
 		
@@ -88,6 +90,7 @@ main(int ac, char **av)
 				int newsock = tcp_accept(fd, SOCKOPT_NONE);
 				if (newsock >= nfds) nfds = newsock + 1;
 				FD_SET(newsock, &set);
+				write(newsock, &c, 1);
 			}
 			sigterm(SIGTERM);
 			/* NOTREACHED */
@@ -99,16 +102,19 @@ main(int ac, char **av)
 			break;
 		}
 		close(fd);
-		fd = tcp_connect("127.0.0.1", TCP_SELECT, SOCKOPT_NONE);
-		if (fd <= 0) {
-			perror("lat_select: Could not open socket");
-			exit(1);
+		for (n = 0; n < N; n++) {
+			fd = tcp_connect("127.0.0.1", TCP_SELECT, SOCKOPT_NONE);
+			if (fd <= 0) {
+				perror("lat_select: Could not open socket");
+				exit(1);
+			}
+			if (fd >= nfds) nfds = fd + 1;
+			FD_SET(fd, &set);
 		}
 	} else if (streq(av[1], "file")) {
 		/* Create a temporary file for clients to open */
 		tmpnam(fname);
 		fd = open(fname, O_RDWR|O_APPEND|O_CREAT, 0666);
-		unlink(fname);
 		if (fd <= 0) {
 			char buf[L_tmpnam+128];
 			sprintf(buf, 
@@ -116,19 +122,22 @@ main(int ac, char **av)
 			perror(buf);
 			exit(1);
 		}
+		FD_SET(fd, &set);
+		for (n = 1; n < N; n++) {
+			fd = open(fname, O_RDWR|O_APPEND, 0);
+			if (fd <= 0) {
+				perror(open);
+				exit(1);
+			}
+			if (fd >= nfds) nfds = fd + 1;
+			FD_SET(fd, &set);
+		}
+		unlink(fname);
 	} else {
 		fprintf(stderr, usage);
 		exit(1);
 	}
 
-	if (ac == 3) N = atoi(av[2]);
-
-	for (n = 0; n < N; n++) {
-		fid = dup(fd);
-		if (fid == -1) break;
-		if (fid >= nfds) nfds = fid + 1;
-		FD_SET(fid, &set);
-	}
 	BENCH(doit(nfds, &set), 0);
 	sprintf(buf, report, n);
 	micro(buf, get_n());

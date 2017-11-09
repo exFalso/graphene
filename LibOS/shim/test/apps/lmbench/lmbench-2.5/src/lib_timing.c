@@ -372,19 +372,24 @@ void
 micromb(uint64 sz, uint64 n)
 {
 	struct timeval td;
-	double	mb, micro;
+	double	mb, micro, mean, var;
 
 	tvsub(&td, &stop_tv, &start_tv);
 	micro = td.tv_sec * 1000000 + td.tv_usec;
 	micro /= n;
 	mb = sz;
 	mb /= MB;
+
+	if (micro == 0.0) return;
+
+	mean = getmeantime();
+	var = getvariancetime();
+	if (var < 0.0)
+		var = 0.0;
+
 	if (!ftiming) ftiming = stderr;
-	if (micro >= 10) {
-		fprintf(ftiming, "%.6f %.0f\n", mb, micro);
-	} else {
-		fprintf(ftiming, "%.6f %.3f\n", mb, micro);
-	}
+	fprintf(ftiming, "%.6f MB median=%.4lf [mean=%.4lf +/-%.4lf] microseconds\n",
+		mb, micro, mean, ci_width(sqrt(var), results.N));
 }
 
 void

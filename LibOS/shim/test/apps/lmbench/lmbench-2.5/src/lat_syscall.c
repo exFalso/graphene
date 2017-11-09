@@ -34,11 +34,40 @@ do_read(int fd, char *s)
 }
 
 void
-do_read_size(int fd, void * buf, size_t size, char *s)
+do_read_size(int fd, void * buf, size_t size, size_t maxsize, char *s)
 {
+	static size_t offset = 0;
+
 	if (read(fd, buf, size) == -1) {
 		perror(s);
 		return;
+	}
+
+	if (maxsize) {
+		offset += size;
+		if (offset + size > maxsize) {
+			offset = 0;
+			lseek(fd, SEEK_SET, 0);
+		}
+	}
+}
+
+void
+do_write_size(int fd, void * buf, size_t size, size_t maxsize, char *s)
+{
+	static size_t offset = 0;
+
+	if (write(fd, buf, size) == -1) {
+		perror(s);
+		return;
+	}
+
+	if (maxsize) {
+		offset += size;
+		if (offset + size > maxsize) {
+			offset = 0;
+			lseek(fd, SEEK_SET, 0);
+		}
 	}
 }
 
@@ -112,6 +141,23 @@ main(int ac, char **av)
 		BENCH(do_write(fd, file), 0);;
 		micro("Simple write", get_n());
 		close(fd);
+	} else if (!strcmp("write-size", av[1])) {
+		size_t size = bytes(av[2]);
+		void * buf = malloc(size);
+		struct stat stat;
+		file = av[3] ? av[3] : "/dev/zero";
+		fd = open(file, 1);
+		if (fd == -1) {
+			fprintf(stderr, "Write from %s: %s\n", file, strerror(errno));
+			return(1);
+		}
+		if (fstat(fd, &stat) == -1) {
+			perror("fstat");
+			return(1);
+		}
+		BENCH(do_write_size(fd, buf, size, stat.st_size, file), 0);
+		micro("Simple fixed-size write", get_n());
+		close(fd);
 	} else if (!strcmp("read", av[1])) {
 		file = av[2] ? av[2] : "/dev/zero";
 		fd = open(file, 0);
@@ -125,14 +171,19 @@ main(int ac, char **av)
 	} else if (!strcmp("read-size", av[1])) {
 		size_t size = bytes(av[2]);
 		void * buf = malloc(size);
+		struct stat stat;
 		file = av[3] ? av[3] : "/dev/zero";
 		fd = open(file, 0);
 		if (fd == -1) {
 			fprintf(stderr, "Read from %s: %s\n", file, strerror(errno));
 			return(1);
 		}
-		BENCH(do_read_size(fd, buf, size, file), 0);
-		micro("Simple read", get_n());
+		if (fstat(fd, &stat) == -1) {
+			perror("fstat");
+			return(1);
+		}
+		BENCH(do_read_size(fd, buf, size, stat.st_size, file), 0);
+		micro("Simple fixed-size read", get_n());
 		close(fd);
 	} else if (!strcmp("stat", av[1])) {
 		BENCH(do_stat(file), 0);
@@ -145,7 +196,7 @@ main(int ac, char **av)
 		BENCH(do_openclose(file), 0);
 		micro("Simple open/close", get_n());
 	} else {
-usage:		printf("Usage: %s null|static|read|read-size|write|stat|open\n", av[0]);
+usage:		printf("Usage: %s null|static|read|read-size|write|write-size|stat|open\n", av[0]);
 	}
 	return(0);
 }

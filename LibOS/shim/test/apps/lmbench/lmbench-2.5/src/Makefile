@@ -53,11 +53,11 @@ COMPILE=$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS)
 
 INCS =	bench.h lib_tcp.h lib_udp.h stats.h timing.h
 
-SRCS =  bench.h bw_file_rd.c bw_mmap_rd.c				\
+SRCS =  bench.h bw_file_rd.c bw_mmap_rd.c lat_brk.c			\
 	bw_pipe.c bw_tcp.c clock.c hello.c lat_connect.c lat_ctx.c	\
 	lat_fs.c lat_mem_rd.c lat_mmap.c lat_pagefault.c lat_pipe.c	\
 	lat_proc.c lat_rpc.c lat_syscall.c lat_tcp.c lat_udp.c		\
-	lib_tcp.c lib_udp.c mhz.c lib_timing.c lat_sig.c 		\
+	lib_tcp.c lib_udp.c mhz.c lib_timing.c lat_sig.c lat_pthread.c	\
 	memsize.c bw_unix.c lat_unix.c lmdd.c loop_o.c timing_o.c	\
 	timing.h stats.h lib_tcp.h lib_udp.h  enough.c lat_select.c	\
 	msleep.c bw_mem.c lat_fifo.c lmhttp.c lat_http.c		\
@@ -70,7 +70,7 @@ EXES =	$O/bw_file_rd $O/bw_mem $O/bw_mmap_rd $O/bw_pipe $O/bw_tcp 	\
 	$O/lat_connect $O/lat_fs $O/lat_sig $O/lat_mem_rd $O/lat_ctx	\
 	$O/memsize $O/lat_unix $O/bw_unix $O/lmdd $O/timing_o $O/enough	\
 	$O/msleep $O/loop_o $O/lat_fifo $O/lmhttp $O/lat_http		\
-	$O/lat_unix_connect $O/lat_fcntl				\
+	$O/lat_unix_connect $O/lat_fcntl $O/lat_pthread $O/lat_brk	\
 	$O/disk $O/flushdisk $O/clock $O/hello $O/lat_msg
 
 MAN1 =	lmdd.1 $D/bargraph.1 $D/graph.1 $D/pgraph.1 $D/rccs.1
@@ -235,6 +235,9 @@ $O/hello:  hello.c $O/lmbench.a
 $O/lat_alarm:  lat_alarm.c timing.h stats.h bench.h $O/lmbench.a
 	$(COMPILE) -o $O/lat_alarm lat_alarm.c $O/lmbench.a $(LDLIBS) -lm
 
+$O/lat_pthread:  lat_pthread.c timing.h stats.h bench.h $O/lmbench.a
+	$(COMPILE) -o $O/lat_pthread lat_pthread.c $O/lmbench.a $(LDLIBS) -lm -pthread
+
 $O/lat_connect:  lat_connect.c lib_tcp.c bench.h lib_tcp.h timing.h stats.h $O/lmbench.a
 	$(COMPILE) -o $O/lat_connect lat_connect.c $O/lmbench.a $(LDLIBS)  -lm
 
@@ -261,6 +264,9 @@ $O/lat_mem_wr2:  lat_mem_wr2.c timing.h stats.h bench.h $O/lmbench.a
 
 $O/lat_mmap:  lat_mmap.c timing.h stats.h bench.h $O/lmbench.a
 	$(COMPILE) -o $O/lat_mmap lat_mmap.c $O/lmbench.a $(LDLIBS) -lm
+
+$O/lat_brk:  lat_brk.c timing.h stats.h bench.h $O/lmbench.a
+	$(COMPILE) -o $O/lat_brk lat_brk.c $O/lmbench.a $(LDLIBS) -lm
 
 $O/lat_mmaprd:  lat_mmaprd.c timing.h stats.h bench.h $O/lmbench.a
 	$(COMPILE) -o $O/lat_mmaprd lat_mmaprd.c $O/lmbench.a $(LDLIBS) -lm

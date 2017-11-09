@@ -115,7 +115,15 @@ then	echo "Can't make a file - $STAT - in $FSDIR" >> ${OUTPUT}
 	exit 1
 fi
 
+function check_run {
+	if [ "x$TESTS" = "x" ]; then echo $1; fi
+	for test in $TESTS
+	do	if [ "$test" = "$1" ]; then echo $1; fi
+	done
+}
+
 function run {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
 	echo "$@"
 	TMPOUT=/tmp/OUT
 	rm -rf $TMPOUT
@@ -128,6 +136,7 @@ function calculate {
 }
 
 function run_repeat_latency {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
 	echo "$@" "($N_RUNS times)"
 	TMPOUT=/tmp/OUT
 	rm -rf $TMPOUT
@@ -141,6 +150,7 @@ function run_repeat_latency {
 }
 
 function run_repeat_bandwidth {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
 	echo "$@" "($N_RUNS times)"
 	TMPOUT=/tmp/OUT
 	rm -rf $TMPOUT
@@ -160,12 +170,12 @@ run lat_syscall null
 run lat_syscall read
 run lat_syscall write
 run lat_syscall stat $STAT
-run lat_syscall fstat $STAT
+RUN LAT_syscall fstaT $stat
 run lat_syscall open $STAT
 
 #select file (500), select tcp (500)
-for i in 10 100 250 500; do run lat_select file $i; done
-for i in 10 100 250 500; do run lat_select tcp $i; done
+for i in 64 128 256 512; do run lat_select file $i; done
+for i in 64 128 256 512; do run lat_select tcp $i; done
 
 #sig install, sig_overhead, prot. Fault
 run lat_sig install
@@ -191,14 +201,26 @@ run lat_pagefault $FILE
 
 #mappings
 echo Memory mappings >> ${OUTPUT}
-for i in $ALL; do run lat_mmap $i $FILE; done
+for i in 1m 4m 16m 64m
+do	run_repeat_latency lat_mmap -n $i --
+done
+for i in 1m 4m 16m 64m
+do	run_repeat_latency lat_mmap $i --
+done
 
-#0,4,10KB create/delete
+for i in 1k 4k 16k 64k
+do	run_repeat_latency lat_brk -n $i
+done
+for i in 1k 4k 16k 64k
+do	run_repeat_latency lat_brk $i
+done
+
+0,4,10KB create/delete
 date >> ${OUTPUT}
-	echo Calculating file system latency >> ${OUTPUT}
-	echo '"File system latency' 1>&2
-	run lat_fs $FSDIR
-	echo "" 1>&2
+echo Calculating file system latency >> ${OUTPUT}
+echo '"File system latency' 1>&2
+run lat_fs $FSDIR
+echo "" 1>&2
 
 date >> ${OUTPUT}
 echo Local netruning >> ${OUTPUT}
@@ -237,6 +259,13 @@ echo Bandwidth measurements >> ${OUTPUT}
 run_repeat_bandwidth bw_unix
 
 run_repeat_bandwidth bw_pipe
+
+date >> ${OUTPUT}
+echo Scheduling latency >> ${OUTPUT}
+run_repeat_latency lat_pthread cond
+for conc in 1 2 4 8
+do	run_repeat_latency lat_pthread mutex $conc
+done
 
 if [ "x$SYSCALL_ONLY" = "x1" ]; then exit; fi
 
