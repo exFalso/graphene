@@ -1,0 +1,27 @@
+# the executable to run
+# loader.exec = file:./HelloWorld
+
+# debug type: inline|file|none
+# loader.debug_type = inline
+# loader.debug_file = <URI>
+
+fs.mount.tmp1.uri = file:/tmp/XXX
+fs.mount.tmp2.uri = file:/tmp/YYY/YYY/XXX
+fs.mount.tmp3.uri = file:/tmp/YYY/YYY/YYY/YYY/XXX
+fs.mount.tmp4.uri = file:/tmp/YYY/YYY/YYY/YYY/YYY/YYY/XXX
+fs.mount.zero.uri = file:/dev/zero
+fs.mount.lat_fs.uri = file:/tmp/lat_fs
+
+# allow to bind on port 8000
+net.allow_bind.1 = 127.0.0.1:8000
+# allow to connect to port 8000
+net.allow_peer.1 = 127.0.0.1:8000
+
+sgx.enclave_size = 256M
+
+sgx.trusted_files.tmp1 = file:/tmp/XXX
+sgx.trusted_files.tmp2 = file:/tmp/YYY/YYY/XXX
+sgx.trusted_files.tmp3 = file:/tmp/YYY/YYY/YYY/YYY/XXX
+sgx.trusted_files.tmp4 = file:/tmp/YYY/YYY/YYY/YYY/YYY/YYY/XXX
+sgx.allowed_files.zero = file:/dev/zero
+sgx.allowed_files.lmbench = file:/tmp/lat_fs/lmbench

@@ -1,0 +1,253 @@
+#!/bin/bash
+
+# lmbench - run the lmbench benchmark suite.
+#
+# Hacked by Larry McVoy (lm@sun.com, lm@sgi.com, lm@bitmover.com).
+# Copyright (c) 1994 Larry McVoy.  GPLed software.
+# $Id$
+
+# Make sure we can find: ./cmd, df, and netstat
+PATH=.:../../scripts:$PATH:/etc:/usr/etc:/sbin:/usr/sbin
+export PATH
+
+echo PATH = $PATH
+
+# lat_unix, lat_udp, lat_tcp only do one run!!!
+# we loop to repeat the tests
+N_RUNS=15
+
+if [ -f $1 ]
+then	. $1
+	echo Using config in $1 >> ${OUTPUT}
+else	echo Using defaults >> ${OUTPUT}
+	ENOUGH=1000000
+	TIMING_O=0
+	LOOP_O=0
+fi
+export ENOUGH TIMING_O LOOP_O
+
+if [ X$FILE = X ]
+then	FILE=/tmp/XXX
+	touch $FILE || echo Can not create $FILE >> ${OUTPUT}
+fi
+if [ X$MB = X ]
+then	MB=8
+fi
+AVAILKB=`expr $MB \* 1024`
+
+# Figure out how big we can go for stuff that wants to use
+# all and half of memory.
+HALF="512 1k 2k 4k 8k 16k 32k 64k 128k 256k 512k 1m"
+ALL="$HALF 2m"
+i=4
+while [ $i -le $MB ]
+do
+	ALL="$ALL ${i}m"
+	h=`expr $i / 2`
+	HALF="$HALF ${h}m"
+	i=`expr $i \* 2`
+done
+
+
+if [ X$FSDIR = X ]
+then	FSDIR=/tmp/lat_fs
+fi
+MP=N
+
+# Figure out as much stuff as we can about this system.
+# Sure would be nice if everyone had SGI's "hinv".
+echo \[lmbench2.0 results for `uname -a`] 1>&2
+echo \[ALL: ${ALL}] 1>&2
+echo \[DISKS: ${DISKS}] 1>&2
+echo \[DISK_DESC: ${DISK_DESC}] 1>&2
+echo \[ENOUGH: ${ENOUGH}] 1>&2
+echo \[FAST: ${FAST}] 1>&2
+echo \[FASTMEM: ${FASTMEM}] 1>&2
+echo \[FILE: ${FILE}] 1>&2
+echo \[FSDIR: ${FSDIR}] 1>&2
+echo \[HALF: ${HALF}] 1>&2
+echo \[INFO: ${INFO}] 1>&2
+echo \[LOOP_O: ${LOOP_O}] 1>&2
+echo \[MB: ${MB}] 1>&2
+echo \[MHZ: ${MHZ}] 1>&2
+echo \[MOTHERBOARD: ${MOTHERBOARD}] 1>&2
+echo \[NETrunS: ${NETrunS}] 1>&2
+echo \[PROCESSORS: ${PROCESSORS}] 1>&2
+echo \[REMOTE: ${REMOTE}] 1>&2
+echo \[SLOWFS: ${SLOWFS}] 1>&2
+echo \[OS: ${OS}] 1>&2
+echo \[TIMING_O: ${TIMING_O}] 1>&2
+echo \[LMBENCH VERSION: ${VERSION}] 1>&2
+echo \[USER: $USER] 1>&2
+echo \[HOSTNAME: `hostname`] 1>&2
+echo \[NODENAME: `uname -n`] 1>&2
+echo \[SYSNAME: `uname -s`] 1>&2
+echo \[PROCESSOR: `uname -p`] 1>&2
+echo \[MACHINE: `uname -m`] 1>&2
+echo \[RELEASE: `uname -r`] 1>&2
+echo \[VERSION: `uname -v`] 1>&2
+#if 0
+echo \[`date`] 1>&2
+echo \[`uptime`] 1>&2
+netstat -i | while read i
+do	echo \[net: "$i"] 1>&2
+	set `echo $i`
+	case $1 in
+	    *ame)	;;
+	    *)		ifconfig $1 | while read i
+			do echo \[if: "$i"] 1>&2
+			done
+			;;
+	esac
+done
+
+mount | while read i
+do	echo \[mount: "$i"] 1>&2
+done
+
+STAT=$FSDIR/lmbench
+mkdir $FSDIR 2>/dev/null
+touch $STAT 2>/dev/null
+if [ ! -f $STAT ]
+then	echo "Can't make a file - $STAT - in $FSDIR" >> ${OUTPUT}
+	touch $STAT
+	exit 1
+fi
+
+function check_run {
+	if [ "x$TESTS" = "x" ]; then echo $1; fi
+	for test in $TESTS
+	do	if [ "$test" = "$1" ]; then echo $1; fi
+	done
+}
+
+function run {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
+	echo "$@"
+	TMPOUT=/tmp/OUT
+	rm -rf $TMPOUT
+	$LOADER "$@" 2>>$TMPOUT | tee -a $TMPOUT
+	cat $TMPOUT 1>&2
+}
+
+function calculate {
+	awk -F ', '  '{ sum += 1.0*$0; ssum += (1.0*$0)^2; cnt++ } END { mean = sum/cnt; stdev = sqrt((ssum-2*sum*mean+cnt*mean^2)/(cnt-1)); ci = 2.131*stdev/sqrt(cnt); printf "   count=%d stdev=%.4f mean=%.4f +/-%.4f\n", cnt, stdev, mean, ci }'
+}
+
+function run_repeat_latency {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
+	echo "$@" "($N_RUNS times)"
+	TMPOUT=/tmp/OUT
+	rm -rf $TMPOUT
+	for i in $(eval echo "{1..$N_RUNS}")
+	do	$PREPARE
+		($LOADER "$@" 2>>$TMPOUT | tee -a $TMPOUT)
+		sleep 3
+	done
+	grep -Po 'mean=\K.*?(?= )' $TMPOUT | calculate | tee -a $TMPOUT
+	cat $TMPOUT 1>&2
+}
+
+function run_repeat_bandwidth {
+	if [ "x`check_run $1`" = "x" ]; then return; fi
+	echo "$@" "($N_RUNS times)"
+	TMPOUT=/tmp/OUT
+	rm -rf $TMPOUT
+	for i in $(eval echo "{1..$N_RUNS}")
+	do	$PREPARE
+		($LOADER "$@" 2>>$TMPOUT | tee -a $TMPOUT)
+		sleep 3
+	done
+	grep -Po ': \K.*?(?=MB|KB)' $TMPOUT | calculate | tee -a $TMPOUT
+	cat $TMPOUT 1>&2
+}
+
+date >> ${OUTPUT}
+echo File latency measurements >> ${OUTPUT}
+run lat_file read
+run lat_file write
+run lat_file attrquery $STAT
+run lat_file attrquerybyhdl $STAT
+run lat_file open $STAT
+
+#select file (500), select tcp (500)
+for i in 64 128 256 512; do run lat_select file $i $STAT; done
+for i in 64 128 256 512; do run lat_select tcp $i; done
+
+#sig install, sig_overhead, prot. Fault
+run lat_sig install
+run lat_sig catch
+run lat_sig prot $STAT
+
+#pipes
+echo Pipe latency >> ${OUTPUT}
+run_repeat_latency lat_pipe
+
+#processes
+run lat_proc
+
+#run lat_pagefault $FILE
+
+#mappings
+echo Memory mappings >> ${OUTPUT}
+for i in 1m 4m 16m 64m
+do	run_repeat_latency lat_mmap -n $i --
+done
+for i in 1m 4m 16m 64m
+do	run_repeat_latency lat_mmap $i --
+done
+
+#0,4,10KB create/delete
+date >> ${OUTPUT}
+	echo Calculating file system latency >> ${OUTPUT}
+	echo '"File system latency' 1>&2
+	run lat_fs $FSDIR
+	echo "" 1>&2
+
+date >> ${OUTPUT}
+echo Local netruning >> ${OUTPUT}
+
+echo UDP socket latency >> ${OUTPUT}
+run lat_udp -s &
+sleep 3
+run_repeat_latency lat_udp 127.0.0.1
+run lat_udp -127.0.0.1
+sleep 3
+
+echo TCP socket latency >> ${OUTPUT}
+run lat_tcp -s &
+sleep 3
+run_repeat_latency lat_tcp 127.0.0.1
+run lat_tcp -127.0.0.1
+sleep 3
+
+#echo TCP connect latency >> ${OUTPUT}
+#run lat_connect -s &
+#sleep 3
+#run lat_connect 127.0.0.1
+#run lat_connect -127.0.0.1
+#sleep 3
+
+echo TCP socket bandwidth >> ${OUTPUT}
+run bw_tcp -s &
+sleep 3
+run_repeat_bandwidth bw_tcp 127.0.0.1
+run bw_tcp -127.0.0.1
+sleep 3
+
+date >> ${OUTPUT}
+echo Bandwidth measurements >> ${OUTPUT}
+run_repeat_bandwidth bw_pipe 1M
+run_repeat_bandwidth bw_pipe 4M
+run_repeat_bandwidth bw_pipe 16M
+run_repeat_bandwidth bw_pipe 256M
+run_repeat_bandwidth bw_gipc 1M
+run_repeat_bandwidth bw_gipc 4M
+run_repeat_bandwidth bw_gipc 16M
+run_repeat_bandwidth bw_gipc 256M
+
+
+
+
+
+exit 0

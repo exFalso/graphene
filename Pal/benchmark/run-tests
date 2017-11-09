@@ -1,0 +1,21 @@
+#!/bin/sh
+
+if [ -z "$RESULTS" ]; then
+	RESULTS=results
+fi
+BASE=$RESULTS/`make --quiet -f ../src/Makefile.Host print_host 2>&1`
+EXT=0
+
+if [ ! -d $RESULTS ]
+then	mkdir -p $RESULTS
+fi
+RESULTS=$BASE.$EXT
+while [ -f $RESULTS ]
+do      EXT=`expr $EXT + 1`
+	RESULTS=$BASE.$EXT
+done
+
+echo Results going to ${RESULTS}
+env OUTPUT=${RESULTS} ./lmbench 2>${RESULTS}
+
+exit 0

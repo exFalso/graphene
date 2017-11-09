@@ -1,0 +1,8 @@
+# the executable to run
+# loader.exec = file:./HelloWorld
+
+# debug type: inline|file|none
+# loader.debug_type = inline
+# loader.debug_file = <URI>
+
+sgx.thread_num = $(LAT_THREAD_MAX)

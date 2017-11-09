@@ -1,0 +1,9 @@
+# the executable to run
+# loader.exec = file:./HelloWorld
+
+# debug type: inline|file|none
+# loader.debug_type = inline
+# loader.debug_file = <URI>
+
+sgx.enclave_size = $(LAT_PROC_ENCLAVE_SIZE)
+sgx.thread_num = 1
