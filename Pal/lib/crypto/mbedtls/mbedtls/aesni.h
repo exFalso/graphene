@@ -40,6 +40,7 @@
 extern "C" {
 #endif
 
+#if !defined(MBEDTLS_ASSUME_AESNI)
 /**
  * \brief          AES-NI features detection routine
  *
@@ -49,6 +50,9 @@ extern "C" {
  * \return         1 if CPU has support for the feature, 0 otherwise
  */
 int mbedtls_aesni_has_support( unsigned int what );
+#else
+#define mbedtls_aesni_has_support(what)        (1)
+#endif
 
 /**
  * \brief          AES-NI AES-ECB block en(de)cryption

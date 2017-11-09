@@ -34,20 +34,22 @@
 
 #include "mbedtls/aesni.h"
 
-#include <string.h>
-
 #ifndef asm
 #define asm __asm
 #endif
 
+#if defined(MBEDTLS_PLATFORM_C)
+#include "mbedtls/platform.h"
+#endif /* MBEDTLS_PLATFORM_C */
+
 #if defined(MBEDTLS_HAVE_X86_64)
 
+#if !defined(MBEDTLS_ASSUME_AESNI)
 /*
  * AES-NI support detection routine
  */
 int mbedtls_aesni_has_support( unsigned int what )
 {
-#if 0
     static int done = 0;
     static unsigned int c = 0;
 
@@ -62,11 +64,8 @@ int mbedtls_aesni_has_support( unsigned int what )
     }
 
     return( ( c & what ) != 0 );
-#else
-    /* CPUID not allowed within the enclave. Assume we have AES-NI. */
-    return 1;
-#endif
 }
+#endif
 
 /*
  * Binutils needs to be at least 2.19 to support AES-NI instructions.
