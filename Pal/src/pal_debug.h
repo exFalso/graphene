@@ -27,9 +27,53 @@
 #define PAL_DEBUG_H
 
 #include "pal.h"
-#include <assert.h>
+#include "api.h"
+
+#ifdef IN_PAL
+
+#ifndef assert
+void __assert (void);
+
+#define assert(val)                                                      \
+    do {                                                                 \
+        if (!(val)) {                                                    \
+            printf("Assertion failed (%s): %s: %d\n", #val,              \
+                   __FILE__, __LINE__);                                  \
+            __assert();                                                  \
+            _DkProcessExit(1);                                           \
+        }                                                                \
+    } while (0)
+#endif
+
+#endif /* IN_PAL */
 
 int pal_printf (const char *fmt, ...);
+
+/* Chia-Che 10/18/17: Use the following macros temporarily, because
+ * pal_printf doesn't support %f */
+
+#define FLOATFMT(precision)  "%d" "." "%0" STRINGIFY(precision) "d"
+
+static unsigned long
+__attribute__((unused))
+below_decimal_point (double val, int precision)
+{
+    int i;
+
+    if (val < 0.0)
+        val = - val;
+
+    val -= (double)(long) val;
+
+    for (i = 0; i < precision ; i++)
+        val *= 10.0;
+
+    return (long) val;
+}
+
+#define FLOATNUM(val, precision) \
+    ((long) (val)), below_decimal_point(val, precision)
+
 
 void DkDebugAttachBinary (PAL_STR uri, PAL_PTR start_addr);
 void DkDebugDetachBinary (PAL_PTR start_addr);
