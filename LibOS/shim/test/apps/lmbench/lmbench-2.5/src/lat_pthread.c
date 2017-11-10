@@ -24,7 +24,7 @@ do_create(void)
 {
 	pthread_t thread;
 	pthread_create(&thread, NULL, thread_null, NULL);
-	pthread_join(&thread, NULL);
+	pthread_join(thread, NULL);
 }
 
 int state = 0;
