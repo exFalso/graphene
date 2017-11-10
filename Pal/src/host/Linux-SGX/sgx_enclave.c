@@ -391,8 +391,10 @@ static int sgx_ocall_sock_connect(void * pms)
 
     if (IS_ERR(ret) && ERRNO(ret) == EINPROGRESS) {
         do {
-            struct pollfd pfd = { .fd = fd, .events = POLLOUT, .revents = 0, };
-            ret = INLINE_SYSCALL(ppoll, 4, &pfd, 1, NULL, NULL);
+            __kernel_fd_set fds;
+            __FD_ZERO(&fds);
+            __FD_SET(fd, &fds);
+            ret = INLINE_SYSCALL(pselect6, 6, fd + 1, NULL, &fds, NULL, NULL, NULL);
         } while (IS_ERR(ret) &&
                  ERRNO(ret) == -EWOULDBLOCK);
     }
@@ -616,18 +618,34 @@ static int sgx_ocall_sleep(void * pms)
     return IS_ERR(ret) ? unix_to_pal_error(ERRNO(ret)) : ret;
 }
 
-static int sgx_ocall_poll(void * pms)
+static int sgx_ocall_select(void * pms)
 {
-    ms_ocall_poll_t * ms = (ms_ocall_poll_t *) pms;
+    ms_ocall_select_t * ms = (ms_ocall_select_t *) pms;
     int ret;
-    ODEBUG(OCALL_POLL, ms);
+    ODEBUG(OCALL_SELECT, ms);
     struct timespec * ts = NULL;
+
     if (ms->ms_timeout != OCALL_NO_TIMEOUT) {
         ts = __alloca(sizeof(struct timespec));
         ts->tv_sec = ms->ms_timeout / 1000000;
         ts->tv_nsec = (ms->ms_timeout - ts->tv_sec * 1000000) * 1000;
     }
-    ret = INLINE_SYSCALL(ppoll, 4, ms->ms_fds, ms->ms_nfds, ts, NULL);
+
+    if (ms->ms_efds) {
+        int fdsize = (__FD_ELT(ms->ms_nfds) + 1) * __NFDBITS / 8;
+        memset(ms->ms_efds, 0, fdsize);
+        if (ms->ms_rfds)
+            for (int i = 0 ; i < fdsize ; i++)
+                ((uint8_t *) ms->ms_efds)[i] |= ((uint8_t *) ms->ms_rfds)[i];
+        if (ms->ms_wfds)
+            for (int i = 0 ; i < fdsize ; i++)
+                ((uint8_t *) ms->ms_efds)[i] |= ((uint8_t *) ms->ms_wfds)[i];
+    }
+
+    ret = INLINE_SYSCALL(pselect6, 6, ms->ms_nfds,
+                         ms->ms_rfds, ms->ms_wfds, ms->ms_efds,
+                         ts, NULL);
+
     return IS_ERR(ret) ? unix_to_pal_error(ERRNO(ret)) : ret;
 }
 
@@ -699,7 +717,7 @@ void * ocall_table[OCALL_NR] = {
         [OCALL_SOCK_SHUTDOWN]   = (void *) sgx_ocall_sock_shutdown,
         [OCALL_GETTIME]         = (void *) sgx_ocall_gettime,
         [OCALL_SLEEP]           = (void *) sgx_ocall_sleep,
-        [OCALL_POLL]            = (void *) sgx_ocall_poll,
+        [OCALL_SELECT]          = (void *) sgx_ocall_select,
         [OCALL_RENAME]          = (void *) sgx_ocall_rename,
         [OCALL_DELETE]          = (void *) sgx_ocall_delete,
         [OCALL_LOAD_DEBUG]      = (void *) sgx_ocall_load_debug,
@@ -721,8 +739,4 @@ int ecall_thread_start (void)
 {
     EDEBUG(ECALL_THREAD_START, NULL);
     return sgx_ecall(ECALL_THREAD_START, NULL);
-}
-
-void __abort(void) {
-    INLINE_SYSCALL(exit_group, 1, -1);
 }

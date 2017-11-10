@@ -38,9 +38,10 @@
 #include <linux/types.h>
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
-#include <asm/poll.h>
 #include <linux/un.h>
+#include <linux/time.h>
 #include <asm/errno.h>
+#include <select.h>
 
 #if USE_PIPE_SYSCALL == 1
 # include <linux/msg.h>
@@ -553,10 +554,12 @@ static int pipe_attrquerybyhdl (PAL_HANDLE handle, PAL_STREAM_ATTR * attr)
         attr->writeable    = PAL_FALSE;
     }
 
-    struct pollfd pfd = { .fd = read_fd, .events = POLLIN, .revents = 0 };
+    __kernel_fd_set fds;
+    __FD_ZERO(&fds);
+    __FD_SET(read_fd, &fds);
     struct timespec tp = { 0, 0 };
-    ret = INLINE_SYSCALL(ppoll, 5, &pfd, 1, &tp, NULL, 0);
-    attr->readable = (ret == 1 && pfd.revents == POLLIN);
+    ret = INLINE_SYSCALL(pselect6, 6, read_fd + 1, &fds, NULL, NULL, &tp, NULL);
+    attr->readable = (ret == 1 && __FD_ISSET(read_fd, &fds));
 
     attr->disconnected = HANDLE_HDR(handle)->flags & ERROR(0);
     attr->nonblocking  = IS_HANDLE_TYPE(handle, pipeprv) ?

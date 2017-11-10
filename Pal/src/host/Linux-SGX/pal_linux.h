@@ -27,6 +27,7 @@
 #include "pal_crypto.h"
 
 #include "linux_types.h"
+#include "select.h"
 #include "sgx_arch.h"
 #include "sgx_tls.h"
 #include "sgx_api.h"

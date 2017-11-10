@@ -36,13 +36,13 @@
 #include "graphene-sandbox.h"
 
 #include <linux/types.h>
-#include <linux/poll.h>
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
 #include <asm/socket.h>
 #include <linux/in.h>
 #include <linux/in6.h>
 #include <asm/errno.h>
+#include <select.h>
 
 #ifndef SOL_TCP
 # define SOL_TCP 6
@@ -504,8 +504,10 @@ static int tcp_connect (PAL_HANDLE * handle, char * uri, int options)
     ret = sys_connect(fd, dest_addr, dest_addrlen);
 
     if (IS_ERR(ret) && ERRNO(ret) == EINPROGRESS) {
-        struct pollfd pfd = { .fd = fd, .events = POLLOUT, .revents = 0 };
-        ret = INLINE_SYSCALL(ppoll, 5, &pfd, 1, NULL, NULL, 0);
+        __kernel_fd_set fds;
+        __FD_ZERO(&fds);
+        __FD_SET(fd, &fds);
+        ret = INLINE_SYSCALL(pselect6, 6, fd + 1, NULL, &fds, NULL, NULL, NULL);
     }
 
     if (IS_ERR(ret)) {
@@ -1052,11 +1054,12 @@ static int socket_attrquerybyhdl (PAL_HANDLE handle, PAL_STREAM_ATTR  * attr)
         attr->pending_size = val;
     }
 
-    struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+    __kernel_fd_set fds;
+    __FD_ZERO(&fds);
+    __FD_SET(fd, &fds);
     struct timespec tp = { 0, 0 };
-    ret = INLINE_SYSCALL(ppoll, 5, &pfd, 1, &tp, NULL, 0);
-    attr->readable = (ret == 1 && pfd.revents == POLLIN);
-
+    ret = INLINE_SYSCALL(pselect6, 6, fd + 1, &fds, NULL, NULL, &tp, NULL);
+    attr->readable = (ret == 1 && __FD_ISSET(fd, &fds));
     return 0;
 }
 
