@@ -349,14 +349,6 @@ static int dir_open (PAL_HANDLE * handle, const char * type, const char * uri,
     return 0;
 }
 
-struct linux_dirent64 {
-    unsigned long  d_ino;
-    unsigned long  d_off;
-    unsigned short d_reclen;
-    unsigned char  d_type;
-    char           d_name[];
-};
-
 #define DT_UNKNOWN      0
 #define DT_FIFO         1
 #define DT_CHR          2

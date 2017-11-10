@@ -23,7 +23,6 @@
 #include "pal_security.h"
 #include "api.h"
 
-#include <sys/socket.h>
 #include <linux/unistd.h>
 #include <asm/fcntl.h>
 #include <asm/mman.h>

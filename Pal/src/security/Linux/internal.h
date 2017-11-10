@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <linux_types.h>
 
 #include "api.h"
 

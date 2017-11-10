@@ -34,18 +34,15 @@
 #include "api.h"
 
 #include <linux/types.h>
-typedef __kernel_pid_t pid_t;
 #include <linux/stat.h>
 #include <linux/msg.h>
-#include <linux/socket.h>
 #include <linux/wait.h>
+#include <linux/in.h>
+#include <linux/in6.h>
 #include <asm/fcntl.h>
 #include <asm/stat.h>
 #include <asm/socket.h>
 #include <asm/poll.h>
-#include <sys/signal.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <asm/errno.h>
 
 void _DkPrintConsole (const void * buf, int size)
@@ -55,7 +52,7 @@ void _DkPrintConsole (const void * buf, int size)
 
 bool stataccess (struct stat * stat, int acc)
 {
-    mode_t mode = stat->st_mode;
+    unsigned int mode = stat->st_mode;
 
     if (linux_state.uid && linux_state.uid == stat->st_uid) {
         mode >>= 6;

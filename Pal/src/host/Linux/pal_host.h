@@ -175,6 +175,7 @@ typedef union pal_handle
     struct {
         PAL_RESERVED_HDR hdr;
         PAL_IDX tid;
+        PAL_PTR stack;
     } thread;
 
     struct {

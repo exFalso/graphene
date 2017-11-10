@@ -42,9 +42,7 @@
 
 #include <linux/sched.h>
 #include <linux/types.h>
-typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
-#include <sys/socket.h>
 #include <asm/errno.h>
 
 #ifndef SEEK_SET

@@ -6,10 +6,7 @@
 #define __GNUC__ 1
 #endif
 
-#include <stdint.h>
-#include <stddef.h>
 #include <linux/unistd.h>
-#include <sys/socket.h>
 #include <linux/in.h>
 #include <linux/in6.h>
 #include <linux/fs.h>
@@ -475,7 +472,7 @@ void do_main (void * args)
     int argc;
     const char ** argv, ** envp;
     ElfW(auxv_t) * auxv;
-    pid_t pid;
+    __kernel_pid_t pid;
     bool do_sandbox = false;
     int ret = 0;
 

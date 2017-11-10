@@ -17,7 +17,6 @@ typedef __builtin_va_list __gnuc_va_list;
 #include <linux/limits.h>
 #include <linux/sched.h>
 #include <linux/prctl.h>
-#include <sys/socket.h>
 #include <asm/fcntl.h>
 #include <asm/mman.h>
 #include <asm/ioctls.h>

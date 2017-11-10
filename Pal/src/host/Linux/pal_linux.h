@@ -30,6 +30,7 @@
 
 #include <sys/syscall.h>
 #include <sigset.h>
+#include <linux_types.h>
 
 #ifdef __x86_64__
 # include "sysdep-x86_64.h"

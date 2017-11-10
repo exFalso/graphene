@@ -39,10 +39,9 @@
 #include <linux/poll.h>
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
-#include <sys/socket.h>
+#include <asm/socket.h>
 #include <linux/in.h>
 #include <linux/in6.h>
-#include <netinet/tcp.h>
 #include <asm/errno.h>
 
 #ifndef SOL_TCP
