@@ -47,6 +47,7 @@
 
 struct pal_linux_state linux_state;
 struct pal_sec pal_sec;
+struct pal_enclave_sec pal_enclave_sec;
 
 unsigned int pagesz = PRESET_PAGESIZE;
 
@@ -141,6 +142,12 @@ void pal_linux_main(const char ** arguments, const char ** environments,
 
     memcpy(&pal_sec, sec_info, sizeof(struct pal_sec));
 
+    /* set these variables early (may be used during initialization) */
+    pal_state.pagesize    = pagesz;
+    pal_state.alloc_align = pagesz;
+    pal_state.alloc_shift = pagesz - 1;
+    pal_state.alloc_mask  = ~pagesz;
+
     /* set up page allocator and slab manager */
     init_slab_mgr(pagesz);
     init_untrusted_slab_mgr(pagesz);
@@ -157,7 +164,11 @@ void pal_linux_main(const char ** arguments, const char ** environments,
     /* if there is a parent, create parent handle */
     if (pal_sec.ppid) {
         if (init_child_process(&parent) < 0)
-            ocall_exit();
+            ocall_exit(OCALL_EXIT_WHOLE_PROCESS);
+    } else {
+        if (!_DkRandomBitsRead(&pal_enclave_sec.rpc_key,
+                               sizeof(pal_enclave_sec.rpc_key)))
+            ocall_exit(OCALL_EXIT_WHOLE_PROCESS);
     }
 
     linux_state.uid = pal_sec.uid;
@@ -191,7 +202,7 @@ void pal_linux_main(const char ** arguments, const char ** environments,
     const char * errstring = NULL;
     if (read_config(root_config, loader_filter, &errstring) < 0) {
         SGX_DBG(DBG_E, "Can't read manifest: %s\n", errstring);
-        ocall_exit();
+        ocall_exit(OCALL_EXIT_WHOLE_PROCESS);
     }
 
     pal_state.root_config = root_config;

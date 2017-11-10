@@ -5,14 +5,14 @@
 #define PAL_DEFS_H
 
 /* enable caching loaded binaries for optimizing process creation */
-#ifdef LINUX
-# define CACHE_LOADED_BINARIES   0
-#else
-# define CACHE_LOADED_BINARIES   0
-#endif
+#define CACHE_LOADED_BINARIES   0
 
 /* statically allocate slab manager */
 #define STATIC_SLAB              1
+
+#ifdef LINUX_SGX
+# define STATIC_SLAB_POOL_SIZE (4 * 1024 * 1024) /* 4MB by default */
+#endif
 
 /* maximum length of URIs */
 #define URI_MAX                  256

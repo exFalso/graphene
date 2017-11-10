@@ -61,7 +61,7 @@ static void assert_vma_list (void)
             if (pal_sec.in_gdb)
                 asm volatile ("int $3" ::: "memory");
 #endif
-            ocall_exit();
+            ocall_exit(OCALL_EXIT_WHOLE_PROCESS);
         }
         last_addr = vma->bottom;
     }

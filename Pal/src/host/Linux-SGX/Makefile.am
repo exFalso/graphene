@@ -13,11 +13,11 @@ ASFLAGS = -DPIC -DSHARED -fPIC -DASSEMBLER -Wa,--noexecstack \
 	  -x assembler-with-cpp -DIN_ENCLAVE
 LDFLAGS	= -shared -nostdlib -z combreloc -z defs \
 	  --version-script $(HOST_DIR)/pal.map -T $(HOST_DIR)/enclave.lds \
-	  --hash-style=gnu -e enclave_entry
+	  --hash-style=gnu -z max-page-size=4096 -e enclave_entry
 ARFLAGS	=
 
 CRYPTO_PROVIDER = mbedtls
-CFLAGS += -DCRYPTO_USE_MBEDTLS
+CFLAGS += -DCRYPTO_USE_MBEDTLS -DMBEDTLS_ASSUME_AESNI
 
 pal_loader = $(HOST_DIR)/pal-sgx
 pal_sec =

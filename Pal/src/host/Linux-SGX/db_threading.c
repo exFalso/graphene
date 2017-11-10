@@ -121,7 +121,7 @@ void _DkThreadYieldExecution (void)
 /* _DkThreadExit for internal use: Thread exiting */
 void _DkThreadExit (void)
 {
-    ocall_exit();
+    ocall_exit(0);
 }
 
 int _DkThreadResume (PAL_HANDLE threadHandle)
@@ -135,6 +135,15 @@ int _DkThreadGetCurrent (PAL_HANDLE * threadHandle)
     return 0;
 }
 
+static int thread_wait (PAL_HANDLE handle, uint64_t timeout)
+{
+    if (!handle->thread.tcs)
+        return -PAL_ERROR_TRYAGAIN;
+
+    ocall_wait_thread(handle->thread.tcs);
+    return 0;
+}
+
 struct handle_ops thread_ops = {
-    /* nothing */
+    .wait       = thread_wait,
 };

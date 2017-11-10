@@ -42,9 +42,7 @@
 
 #include <linux/sched.h>
 #include <linux/types.h>
-typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
-#include <sys/socket.h>
 #include <asm/errno.h>
 
 #ifndef SEEK_SET
@@ -466,7 +464,7 @@ static int set_graphene_task (const char * uri, int flags)
     if ((ret = read_config(&sandbox_config, NULL, NULL)) < 0)
         goto out_mem;
 
-    struct graphene_user_policy policies[5], * p = policies;
+    struct graphene_user_policy policies[6], * p = policies;
 
     if (strpartcmp_static(uri, "file:")) {
         p->type  = GRAPHENE_FS_PATH | GRAPHENE_FS_READ;
@@ -487,6 +485,11 @@ static int set_graphene_task (const char * uri, int flags)
     p->type  = GRAPHENE_FS_PATH | GRAPHENE_FS_READ;
     p->value = "/proc/meminfo";
     p++;
+
+    p->type  = GRAPHENE_FS_PATH | GRAPHENE_FS_READ;
+    p->value = PAL_LOADER;
+    p++;
+
 
     ret = ioctl_set_graphene(pal_sec.reference_monitor,
                              &sandbox_config, p - policies, policies);

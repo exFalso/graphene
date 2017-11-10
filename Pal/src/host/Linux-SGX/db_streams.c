@@ -114,10 +114,16 @@ int handle_serialize (PAL_HANDLE handle, void ** data)
             d1 = handle->file.realpath;
             dsz1 = strlen(handle->file.realpath) + 1;
             break;
-        case pal_type_pipe:
         case pal_type_pipesrv:
+            break;
+        case pal_type_pipe:
         case pal_type_pipecli:
+            d1 = handle->pipe.sec_ctx;
+            dsz1 = sizeof(PAL_SEC_CONTEXT);
+            break;
         case pal_type_pipeprv:
+            d1 = handle->pipeprv.sec_ctx;
+            dsz1 = sizeof(PAL_SEC_CONTEXT);
             break;
         case pal_type_dev:
             if (handle->dev.realpath) {
@@ -146,6 +152,8 @@ int handle_serialize (PAL_HANDLE handle, void ** data)
             break;
         case pal_type_gipc:
         case pal_type_process:
+            d1 = handle->process.sec_ctx;
+            dsz1 = sizeof(PAL_SEC_CONTEXT);
             break;
         default:
             return -PAL_ERROR_INVAL;
@@ -190,11 +198,19 @@ int handle_deserialize (PAL_HANDLE * handle, const void * data, int size)
             hdl->file.stubs = (PAL_PTR) NULL;
             break;
         }
-        case pal_type_pipe:
         case pal_type_pipesrv:
+            hdl = remalloc(hdl_data, hdlsz);
+            break;
+        case pal_type_pipe:
         case pal_type_pipecli:
+            hdl = remalloc(hdl_data, hdlsz);
+            _DkStreamSecureMigrate((PAL_SEC_CONTEXT *) data,
+                                   (PAL_SEC_CONTEXT **) &hdl->pipe.sec_ctx);
+            break;
         case pal_type_pipeprv:
             hdl = remalloc(hdl_data, hdlsz);
+            _DkStreamSecureMigrate((PAL_SEC_CONTEXT *) data,
+                                   (PAL_SEC_CONTEXT **) &hdl->pipeprv.sec_ctx);
             break;
         case pal_type_dev: {
             int l = hdl_data->dev.realpath ? strlen((const char *) data) + 1 : 0;
@@ -246,6 +262,8 @@ int handle_deserialize (PAL_HANDLE * handle, const void * data, int size)
         case pal_type_gipc:
         case pal_type_process:
             hdl = remalloc(hdl_data, hdlsz);
+            _DkStreamSecureMigrate((PAL_SEC_CONTEXT *) data,
+                                   (PAL_SEC_CONTEXT **) &hdl->process.sec_ctx);
             break;
         default :
             return -PAL_ERROR_BADHANDLE;

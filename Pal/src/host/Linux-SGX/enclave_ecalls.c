@@ -53,8 +53,10 @@ int handle_ecall (long ecall_index, void * ecall_args, void * exit_target,
         case ECALL_THREAD_START:
             pal_start_thread();
             break;
+
+        default:
+            ocall_exit(OCALL_EXIT_WHOLE_PROCESS);
     }
 
-    ocall_exit();
     return 0;
 }

@@ -214,10 +214,10 @@ static void _DkTerminateSighandler (int signum, siginfo_t * info,
         uc->uc_mcontext.gregs[REG_RDI] = -PAL_ERROR_INTERRUPTED;
         uc->uc_mcontext.gregs[REG_RSI] = get_event_num(signum);
     } else {
-#if SGX_HAS_FSGSBASE != 0
-        sgx_raise(get_event_num(signum));
-#else
+#if SGX_HAS_FSGSBASE == 0
         uc->uc_mcontext.gregs[REG_R9]  = get_event_num(signum);
+#else
+        sgx_raise(get_event_num(signum));
 #endif
     }
 }

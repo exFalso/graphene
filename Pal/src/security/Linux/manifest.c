@@ -23,7 +23,6 @@
 #include "pal_security.h"
 #include "api.h"
 
-#include <sys/socket.h>
 #include <linux/unistd.h>
 #include <asm/fcntl.h>
 #include <asm/mman.h>
@@ -318,10 +317,6 @@ int ioctl_set_graphene (int device, struct config_store * config, int ndefault,
 
     p->policies[n].type = GRAPHENE_FS_PATH | ro;
     p->policies[n].value = "/dev/gipc";
-    n++;
-
-    p->policies[n].type = GRAPHENE_FS_PATH | ro;
-    p->policies[n].value = PAL_LOADER;
     n++;
 
     p->npolicies = n;

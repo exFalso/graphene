@@ -40,7 +40,7 @@
 #include <linux/in6.h>
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
-#include <asm-generic/socket.h>
+#include <asm/socket.h>
 
 #ifndef SOL_TCP
 # define SOL_TCP 6

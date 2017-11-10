@@ -45,6 +45,16 @@
 typedef __kernel_pid_t pid_t;
 #include <asm/fcntl.h>
 
+static int proc_read  (PAL_HANDLE handle, int offset, int size,
+                       void * buffer);
+static int proc_write (PAL_HANDLE handle, int offset, int size,
+                       const void * buffer);
+
+static int proc_secure_read  (PAL_HANDLE handle, int offset, int size,
+                              void * buffer);
+static int proc_secure_write (PAL_HANDLE handle, int offset, int size,
+                              const void * buffer);
+
 DEFINE_LIST(trusted_child);
 struct trusted_child {
     LIST_TYPE(trusted_child) list;
@@ -219,13 +229,14 @@ int _DkProcessCreate (PAL_HANDLE * handle, const char * uri,
     proc->process.pid = child_pid;
     proc->process.nonblocking = PAL_FALSE;
 
-    PAL_SESSION_KEY session_key;
-    ret = _DkStreamKeyExchange(proc, &session_key);
+
+    PAL_SESSION_KEY key;
+    ret = _DkStreamKeyExchange(proc, &key, proc_read, proc_write);
     if (ret < 0)
         return ret;
 
     struct check_child_param param;
-    session_key_to_mac_key(&session_key, &param.mac_key);
+    session_key_to_mac_key(&key, &param.mac_key);
     param.uri = uri;
 
     struct proc_attestation_data data;
@@ -238,8 +249,18 @@ int _DkProcessCreate (PAL_HANDLE * handle, const char * uri,
 
     SGX_DBG(DBG_P|DBG_S, "Attestation data: %s\n", hex2str(data.keyhash_mac));
 
-    ret = _DkStreamAttestationRequest(proc, &data,
+    ret = _DkStreamAttestationRequest(proc, &data, proc_read, proc_write,
                                       &check_child_mrenclave, &param);
+    if (ret < 0)
+        return ret;
+
+    ret = _DkStreamSecureInit(&key, PAL_STREAM_SERVER,
+                              (PAL_SEC_CONTEXT **) &proc->process.sec_ctx);
+    if (ret < 0)
+        return ret;
+
+    ret = proc_secure_write(proc, 0, sizeof(pal_enclave_sec),
+                            &pal_enclave_sec);
     if (ret < 0)
         return ret;
 
@@ -289,13 +310,13 @@ int init_child_process (PAL_HANDLE * parent_handle)
     parent->process.pid        = pal_sec.ppid;
     parent->process.nonblocking = PAL_FALSE;
 
-    PAL_SESSION_KEY session_key;
-    int ret = _DkStreamKeyExchange(parent, &session_key);
+    PAL_SESSION_KEY key;
+    int ret = _DkStreamKeyExchange(parent, &key, proc_read, proc_write);
     if (ret < 0)
         return ret;
 
     struct check_parent_param param;
-    session_key_to_mac_key(&session_key, &param.mac_key);
+    session_key_to_mac_key(&key, &param.mac_key);
 
     struct proc_attestation_data data;
     memset(&data, 0, sizeof(struct proc_attestation_data));
@@ -307,9 +328,18 @@ int init_child_process (PAL_HANDLE * parent_handle)
 
     SGX_DBG(DBG_P|DBG_S, "Attestation data: %s\n", hex2str(data.keyhash_mac));
 
-    ret = _DkStreamAttestationRespond(parent, &data,
-                                      &check_parent_mrenclave,
-                                      &param);
+    ret = _DkStreamAttestationRespond(parent, &data, proc_read, proc_write,
+                                      &check_parent_mrenclave, &param);
+    if (ret < 0)
+        return ret;
+
+    ret = _DkStreamSecureInit(&key, PAL_STREAM_CLIENT,
+                              (PAL_SEC_CONTEXT **) &parent->process.sec_ctx);
+    if (ret < 0)
+        return ret;
+
+    ret = proc_secure_read(parent, 0, sizeof(pal_enclave_sec),
+                           &pal_enclave_sec);
     if (ret < 0)
         return ret;
 
@@ -330,7 +360,7 @@ void _DkProcessExit (int exitcode)
 #if PRINT_ENCLAVE_STAT
     print_alloced_pages();
 #endif
-    ocall_exit();
+    ocall_exit(exitcode|OCALL_EXIT_WHOLE_PROCESS);
 }
 
 int _DkProcessSandboxCreate (const char * manifest, int flags)
@@ -342,6 +372,14 @@ static int proc_read (PAL_HANDLE handle, int offset, int count,
                           void * buffer)
 {
     return ocall_read(handle->process.stream_in, buffer, count);
+}
+
+static int proc_secure_read (PAL_HANDLE handle, int offset, int count,
+                             void * buffer)
+{
+    return _DkStreamSecureRead(handle,
+                               (PAL_SEC_CONTEXT *) handle->process.sec_ctx,
+                               proc_read, offset, count, buffer);
 }
 
 static int proc_write (PAL_HANDLE handle, int offset, int count,
@@ -363,6 +401,14 @@ static int proc_write (PAL_HANDLE handle, int offset, int count,
     return bytes;
 }
 
+static int proc_secure_write (PAL_HANDLE handle, int offset, int count,
+                              const void * buffer)
+{
+    return _DkStreamSecureWrite(handle,
+                                (PAL_SEC_CONTEXT *) handle->process.sec_ctx,
+                                proc_write, offset, count, buffer);
+}
+
 static int proc_close (PAL_HANDLE handle)
 {
     if (handle->process.stream_in != PAL_IDX_POISON) {
@@ -378,6 +424,11 @@ static int proc_close (PAL_HANDLE handle)
     if (handle->process.cargo != PAL_IDX_POISON) {
         ocall_close(handle->process.cargo);
         handle->process.cargo = PAL_IDX_POISON;
+    }
+
+    if (handle->process.sec_ctx) {
+        _DkStreamSecureFree((PAL_SEC_CONTEXT *) handle->process.sec_ctx);
+        handle->process.sec_ctx = NULL;
     }
 
     return 0;
@@ -456,8 +507,8 @@ static int proc_attrsetbyhdl (PAL_HANDLE handle, PAL_STREAM_ATTR * attr)
 }
 
 struct handle_ops proc_ops = {
-        .read           = &proc_read,
-        .write          = &proc_write,
+        .read           = &proc_secure_read,
+        .write          = &proc_secure_write,
         .close          = &proc_close,
         .delete         = &proc_delete,
         .attrquerybyhdl = &proc_attrquerybyhdl,

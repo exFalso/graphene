@@ -7,6 +7,7 @@
 
 #include <pthread.h>
 #include <linux/futex.h>
+#include <linux/wait.h>
 #include <asm/signal.h>
 #include <asm/prctl.h>
 
@@ -43,6 +44,7 @@ void map_tcs (unsigned int tid)
         if (!enclave_thread_map[i].tid) {
             enclave_thread_map[i].tid = tid;
             current_tcs = enclave_thread_map[i].tcs;
+            SGX_DBG(DBG_I, "map TCS at 0x%08lx\n", current_tcs);
             ((struct enclave_dbginfo *) DBGINFO_ADDR)->thread_tids[i] = tid;
             break;
         }
@@ -58,7 +60,12 @@ void unmap_tcs (void)
     current_tcs = NULL;
     ((struct enclave_dbginfo *) DBGINFO_ADDR)->thread_tids[index] = 0;
     map->tid = 0;
-    map->tcs = NULL;
+}
+
+void thread_exit (void)
+{
+    unmap_tcs();
+    INLINE_SYSCALL(exit, 1, 0);
 }
 
 static void * thread_start (void * arg)
@@ -73,7 +80,7 @@ static void * thread_start (void * arg)
     }
 
     ecall_thread_start();
-    unmap_tcs();
+    thread_exit();
     return NULL;
 }
 
@@ -92,5 +99,18 @@ int interrupt_thread (void * tcs)
     if (!map->tid)
         return -PAL_ERROR_INVAL;
     INLINE_SYSCALL(tgkill, 3, PAL_SEC()->pid, map->tid, SIGCONT);
+    return 0;
+}
+
+int wait_thread (void * tcs)
+{
+    int index = (sgx_arch_tcs_t *) tcs - enclave_tcs;
+    struct thread_map * map = &enclave_thread_map[index];
+    if (index >= enclave_thread_num)
+        return -PAL_ERROR_INVAL;
+    if (!map->tid)
+        return -PAL_ERROR_INVAL;
+    int status;
+    INLINE_SYSCALL(wait4, 4, map->tid, &status, __WALL, NULL);
     return 0;
 }

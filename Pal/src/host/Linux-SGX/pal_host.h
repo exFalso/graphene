@@ -104,12 +104,14 @@ typedef union pal_handle
         PAL_IDX fd;
         PAL_NUM pipeid;
         PAL_BOL nonblocking;
+        PAL_PTR sec_ctx;
     } pipe;
 
     struct {
         PAL_HDR reserved;
         PAL_IDX fds[2];
         PAL_BOL nonblocking;
+        PAL_PTR sec_ctx;
     } pipeprv;
 
     struct {
@@ -157,6 +159,7 @@ typedef union pal_handle
         PAL_IDX cargo;
         PAL_IDX pid;
         PAL_BOL nonblocking;
+        PAL_PTR sec_ctx;
     } process;
 
     struct {
@@ -165,6 +168,7 @@ typedef union pal_handle
         PAL_IDX srv;
         PAL_IDX port;
         PAL_BOL nonblocking;
+        PAL_PTR sec_ctx;
     } mcast;
 
     struct pal_handle_thread thread;

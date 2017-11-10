@@ -30,6 +30,20 @@ void * sgx_ocalloc (uint64_t size)
     return ustack;
 }
 
+void * sgx_ocalloc_top (int64_t offset)
+{
+    void * ustack_top = GET_ENCLAVE_TLS(ustack_top),
+         * ustack = GET_ENCLAVE_TLS(ustack);
+
+    assert(ustack_top == ustack);
+
+    ustack_top -= offset;
+    SET_ENCLAVE_TLS(ustack_top, ustack_top);
+    SET_ENCLAVE_TLS(ustack, ustack_top);
+
+    return ustack_top;
+}
+
 void sgx_ocfree (void)
 {
     SET_ENCLAVE_TLS(ustack, GET_ENCLAVE_TLS(ustack_top));
@@ -239,6 +253,8 @@ unmap:
     if (ret < 0)
         goto failed;
 
+    SGX_DBG(DBG_S, "verfied: %s %s\n", uri, hex2str(hash.bytes));
+
     if (memcmp(&hash, &tf->checksum, sizeof(sgx_checksum_t))) {
         ret = -PAL_ERROR_DENIED;
         goto failed;
@@ -286,7 +302,6 @@ int verify_trusted_file (const char * uri, void * mem,
 {
     unsigned long checking = offset;
     sgx_stub_t * s = stubs + checking / TRUSTED_STUB_SIZE;
-    int ret;
 
     for (; checking < offset + size ; checking += TRUSTED_STUB_SIZE, s++) {
         unsigned long checking_size = TRUSTED_STUB_SIZE;
@@ -670,7 +685,8 @@ out_free:
     return ret;
 }
 
-int _DkStreamKeyExchange (PAL_HANDLE stream, PAL_SESSION_KEY * keyptr)
+int _DkStreamKeyExchange (PAL_HANDLE stream, PAL_SESSION_KEY * keyptr,
+                          handle_read_t read, handle_write_t write)
 {
     unsigned char session_key[32] __attribute__((aligned(32)));
     uint8_t pub[DH_SIZE]   __attribute__((aligned(DH_SIZE)));
@@ -702,15 +718,15 @@ int _DkStreamKeyExchange (PAL_HANDLE stream, PAL_SESSION_KEY * keyptr)
         memset(pub, 0, DH_SIZE - pubsz);
     }
 
-    ret = _DkStreamWrite(stream, 0, DH_SIZE, pub, NULL, 0);
+    ret = write(stream, 0, DH_SIZE, pub);
     if (ret != DH_SIZE) {
-        SGX_DBG(DBG_S, "Key Exchange: DkStreamWrite failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Key Exchange: write failed: %d\n", ret);
         goto out;
     }
 
-    ret = _DkStreamRead(stream, 0, DH_SIZE, pub, NULL, 0);
+    ret = read(stream, 0, DH_SIZE, pub);
     if (ret != DH_SIZE) {
-        SGX_DBG(DBG_S, "Key Exchange: DkStreamRead failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Key Exchange: read failed: %d\n", ret);
         goto out;
     }
 
@@ -751,8 +767,8 @@ struct attestation {
 };
 
 int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
-                                 int (*check_mrenclave) (sgx_arch_hash_t *,
-                                                         void *, void *),
+                                 handle_read_t read, handle_write_t write,
+                                 check_mrenclave_t check_mrenclave,
                                  void * check_param)
 {
     struct attestation_request req;
@@ -767,19 +783,17 @@ int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
             hex2str(req.mrenclave));
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(req) ; bytes += ret) {
-        ret = _DkStreamWrite(stream, 0, sizeof(req) - bytes,
-                             ((void *) &req) + bytes, NULL, 0);
+        ret = write(stream, 0, sizeof(req) - bytes, ((void *) &req) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Request: DkStreamWrite failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Request: write failed: %d\n", ret);
             goto out;
         }
     }
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(att) ; bytes += ret) {
-        ret = _DkStreamRead(stream, 0, sizeof(att) - bytes,
-                            ((void *) &att) + bytes, NULL, 0);
+        ret = read(stream, 0, sizeof(att) - bytes, ((void *) &att) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Request: DkStreamRead failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Request: read failed: %d\n", ret);
             goto out;
         }
     }
@@ -789,7 +803,7 @@ int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
 
     ret = sgx_verify_report(&att.report);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Request: sgx_verify_report failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Request: verify failed: %d\n", ret);
         goto out;
     }
 
@@ -802,7 +816,7 @@ int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
     ret = check_mrenclave(&att.report.mrenclave, &att.report.report_data,
                           check_param);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Request: check_mrenclave failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Request: check failed: %d\n", ret);
         goto out;
     }
 
@@ -817,7 +831,7 @@ int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
 
     ret = sgx_get_report(&att.mrenclave, &att.attributes, data, &att.report);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Request: sgx_get_report failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Request: get report failed: %d\n", ret);
         goto out;
     }
 
@@ -829,10 +843,9 @@ int _DkStreamAttestationRequest (PAL_HANDLE stream, void * data,
             hex2str(att.mrenclave));
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(att) ; bytes += ret) {
-        ret = _DkStreamWrite(stream, 0, sizeof(att) - bytes,
-                             ((void *) &att) + bytes, NULL, 0);
+        ret = write(stream, 0, sizeof(att) - bytes, ((void *) &att) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Request: DkStreamWrite failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Request: write failed: %d\n", ret);
             goto out;
         }
     }
@@ -845,8 +858,8 @@ out:
 }
 
 int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
-                                 int (*check_mrenclave) (sgx_arch_hash_t *,
-                                                         void *, void *),
+                                 handle_read_t read, handle_write_t write,
+                                 check_mrenclave_t check_mrenclave,
                                  void * check_param)
 {
     struct attestation_request req;
@@ -854,10 +867,9 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
     int bytes, ret;
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(req) ; bytes += ret) {
-        ret = _DkStreamRead(stream, 0, sizeof(req) - bytes,
-                            ((void *) &req) + bytes, NULL, 0);
+        ret = read(stream, 0, sizeof(req) - bytes, ((void *) &req) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Respond: DkStreamRead failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Respond: read failed: %d\n", ret);
             goto out;
         }
     }
@@ -867,7 +879,7 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
 
     ret = sgx_get_report(&req.mrenclave, &req.attributes, data, &att.report);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Respond: sgx_get_report failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Respond: get report failed: %d\n", ret);
         goto out;
     }
 
@@ -879,19 +891,17 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
             hex2str(att.mrenclave));
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(att) ; bytes += ret) {
-        ret = _DkStreamWrite(stream, 0, sizeof(att) - bytes,
-                             ((void *) &att) + bytes, NULL, 0);
+        ret = write(stream, 0, sizeof(att) - bytes, ((void *) &att) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Respond: DkStreamWrite failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Respond: write failed: %d\n", ret);
             goto out;
         }
     }
 
     for (bytes = 0, ret = 0 ; bytes < sizeof(att) ; bytes += ret) {
-        ret = _DkStreamRead(stream, 0, sizeof(att) - bytes,
-                            ((void *) &att) + bytes, NULL, 0);
+        ret = read(stream, 0, sizeof(att) - bytes, ((void *) &att) + bytes);
         if (ret < 0) {
-            SGX_DBG(DBG_S, "Attestation Respond: DkStreamRead failed: %d\n", ret);
+            SGX_DBG(DBG_S, "Attestation Respond: read again failed: %d\n", ret);
             goto out;
         }
     }
@@ -901,7 +911,7 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
 
     ret = sgx_verify_report(&att.report);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Respond: sgx_verify_report failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Respond: verify failed: %d\n", ret);
         goto out;
     }
 
@@ -913,7 +923,7 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
     ret = check_mrenclave(&att.report.mrenclave, &att.report.report_data,
                           check_param);
     if (ret < 0) {
-        SGX_DBG(DBG_S, "Attestation Request: check_mrenclave failed: %d\n", ret);
+        SGX_DBG(DBG_S, "Attestation Request: check failed: %d\n", ret);
         goto out;
     }
 
@@ -930,4 +940,260 @@ int _DkStreamAttestationRespond (PAL_HANDLE stream, void * data,
 out:
     DkStreamDelete(stream, 0);
     return ret;
+}
+
+static int stream_context_alloc_buffer (struct pal_stream_context * ctx,
+                                        uint64_t size)
+{
+    size = ALLOC_ALIGNUP(size);
+
+    if (size <= ctx->bufsize)
+        return 0;
+
+    uint64_t newsize = ctx->bufsize ? : size;
+    while (newsize < size)
+        newsize *= 2;
+
+    void * newbuf = NULL;
+    int ret = ocall_alloc_untrusted(newsize, &newbuf);
+    if (ret < 0)
+        return ret;
+
+    if (ctx->bufoffset)
+        memcpy(newbuf, ctx->buf, ctx->bufoffset);
+
+    if (ctx->buf)
+        ocall_unmap_untrusted(ctx->buf, ctx->bufsize);
+
+    ctx->buf = newbuf;
+    ctx->bufsize = newsize;
+    return 0;
+}
+
+int _DkStreamSecureInit (PAL_SESSION_KEY * key, unsigned which,
+                         PAL_SEC_CONTEXT ** context)
+{
+    PAL_SEC_CONTEXT * sec_ctx = malloc(sizeof(PAL_SEC_CONTEXT));
+    int ret;
+
+    if (!sec_ctx)
+        return -PAL_ERROR_NOMEM;
+
+    memset(sec_ctx, 0, sizeof(PAL_SEC_CONTEXT));
+
+    if ((ret = lib_AESGCMInit(&sec_ctx->ctxi.ctx,  (uint8_t *) key,
+                              sizeof(*key))) < 0)
+        return ret;
+
+    if ((ret = lib_AESGCMInit(&sec_ctx->ctxo.ctx, (uint8_t *) key,
+                              sizeof(*key))) < 0)
+        return ret;
+
+    memcpy(&sec_ctx->key, key, sizeof(*key));
+
+    /* use part of the key as salt for now (not secure!) */
+    memcpy(&sec_ctx->ctxi.iv.salt, key, sizeof(sec_ctx->ctxi.iv.salt));
+    memcpy(&sec_ctx->ctxo.iv.salt, key, sizeof(sec_ctx->ctxo.iv.salt));
+
+    /* flip the first bit of the receiption epoch of the server and the sender
+     * epoch of the client */
+    if (which == PAL_STREAM_SERVER)
+        sec_ctx->ctxi.hdr.epoch |= SERVER_SIDE_EPOCH;
+    if (which == PAL_STREAM_CLIENT)
+        sec_ctx->ctxo.hdr.epoch |= SERVER_SIDE_EPOCH;
+
+    *context = sec_ctx;
+    return 0;
+}
+
+int _DkStreamSecureMigrate (PAL_SEC_CONTEXT * input, PAL_SEC_CONTEXT ** context)
+{
+    PAL_SEC_CONTEXT * sec_ctx = malloc(sizeof(PAL_SEC_CONTEXT));
+    int ret;
+
+    if (!sec_ctx)
+        return -PAL_ERROR_NOMEM;
+
+    memcpy(sec_ctx, input, sizeof(PAL_SEC_CONTEXT));
+
+    if ((ret = lib_AESGCMInit(&sec_ctx->ctxi.ctx, (uint8_t *) &sec_ctx->key,
+                              sizeof(sec_ctx->key))) < 0)
+        return ret;
+
+    if ((ret = lib_AESGCMInit(&sec_ctx->ctxo.ctx, (uint8_t *) &sec_ctx->key,
+                              sizeof(sec_ctx->key))) < 0)
+        return ret;
+
+    sec_ctx->ctxi.buf = sec_ctx->ctxo.buf = NULL;
+    sec_ctx->ctxi.bufsize = sec_ctx->ctxo.bufsize = 0;
+    sec_ctx->ctxi.bufoffset = sec_ctx->ctxo.bufoffset = 0;
+    *context = sec_ctx;
+    return 0;
+}
+
+int _DkStreamSecureFree (PAL_SEC_CONTEXT * context)
+{
+    lib_AESGCMFree(&context->ctxi.ctx);
+    lib_AESGCMFree(&context->ctxo.ctx);
+    free(context);
+    return 0;
+}
+
+int _DkStreamSecureRead (PAL_HANDLE handle,
+                         PAL_SEC_CONTEXT * sec_ctx, handle_read_t read,
+                         int offset, int count, void * buffer)
+{
+    struct pal_stream_context * ctx = &sec_ctx->ctxi;
+    int ret;
+
+    ret = stream_context_alloc_buffer(ctx, PAL_SEC_INIT_BUFSIZE);
+    if (ret < 0)
+        return ret;
+
+    if (ctx->bufoffset < sizeof(ctx->hdr)) {
+        ret = read(handle, offset, ctx->bufsize - ctx->bufoffset,
+                   ctx->buf + ctx->bufoffset);
+
+        if (ret <= 0)
+            return ret;
+
+        ctx->bufoffset += ret;
+        if (ctx->bufoffset < sizeof(ctx->hdr))
+            return -PAL_ERROR_TRYAGAIN;
+    }
+
+    memcpy(&ctx->hdr, ctx->buf, sizeof(ctx->hdr));
+
+    stream_context_alloc_buffer(ctx, ctx->hdr.msg_len);
+    if (ctx->bufsize < ctx->hdr.msg_len)
+        return -PAL_ERROR_NOMEM;
+
+
+    if (ctx->bufoffset < ctx->hdr.msg_len) {
+        ret = read(handle, offset, ctx->bufsize - ctx->bufoffset,
+                   ctx->buf + ctx->bufoffset);
+
+        if (ret <= 0)
+            return ret;
+
+        ctx->bufoffset += ret;
+        if (ctx->bufoffset < ctx->hdr.msg_len)
+            return -PAL_ERROR_TRYAGAIN;
+    }
+
+    int msg_len = ctx->hdr.msg_len - sizeof(ctx->hdr);
+    int enc_len = msg_len - GCM_TAG_SIZE;
+    uint8_t * input = ctx->buf + sizeof(ctx->hdr);
+    uint8_t * tag = input + enc_len;
+
+    SGX_DBG(DBG_O, "[DEC %08lx] Received %d bytes from the stream\n",
+            ctx->hdr.epoch, ctx->bufoffset);
+
+    ctx->iv.nonce = ctx->hdr.epoch;
+
+    SGX_DBG(DBG_O, "[DEC %08lx] Header = %s IV = %s\n",
+            ctx->hdr.epoch,
+            __hex2str(&ctx->hdr, sizeof(ctx->hdr)),
+            __hex2str(&ctx->iv,  sizeof(ctx->iv)));
+
+    if (enc_len > 16)
+        SGX_DBG(DBG_O, "[DEC %08lx] Enc = %s ... (%d bytes) Tag = %s\n",
+                ctx->hdr.epoch, __hex2str(input, 16), enc_len,
+                __hex2str(tag, GCM_TAG_SIZE));
+    else
+        SGX_DBG(DBG_O, "[DEC %08lx] Enc = %s Tag = %s\n",
+                ctx->hdr.epoch, __hex2str(input, enc_len),
+                __hex2str(tag, GCM_TAG_SIZE));
+
+    uint64_t dec_len = count;
+    ret = lib_AESGCMAuthDecrypt(&ctx->ctx,
+                                (const uint8_t *) &ctx->iv,
+                                sizeof(ctx->iv),
+                                (const uint8_t *) &ctx->hdr,
+                                sizeof(ctx->hdr),
+                                input, enc_len,
+                                (uint8_t *) buffer, &dec_len,
+                                tag, GCM_TAG_SIZE);
+
+    if (ret < 0)
+        SGX_DBG(DBG_O, "[DEC %08lx] authentication failed\n", ctx->hdr.epoch);
+
+    ctx->hdr.epoch = (ctx->hdr.epoch & SERVER_SIDE_EPOCH)|
+                     ((ctx->hdr.epoch + 1) & ~SERVER_SIDE_EPOCH);
+    ctx->bufoffset -= ctx->hdr.msg_len;
+    memmove(ctx->buf, ctx->buf + ctx->hdr.msg_len, ctx->bufoffset);
+
+out:
+    return ret < 0 ? ret : dec_len;
+}
+
+int _DkStreamSecureWrite (PAL_HANDLE handle,
+                          PAL_SEC_CONTEXT * sec_ctx, handle_write_t write,
+                          int offset, int count, const void * buffer)
+{
+    struct pal_stream_context * ctx = &sec_ctx->ctxo;
+    uint8_t tag[GCM_TAG_SIZE];
+    int ret;
+
+    int msg_len = sizeof(ctx->hdr) + count + sizeof(tag);
+
+    ctx->hdr.msg_len = msg_len;
+    ctx->iv.nonce = ctx->hdr.epoch;
+
+    SGX_DBG(DBG_O, "[ENC %08lx] Header = %s IV = %s\n",
+            ctx->hdr.epoch,
+            __hex2str(&ctx->hdr, sizeof(ctx->hdr)),
+            __hex2str(&ctx->iv,  sizeof(ctx->iv)));
+
+    ret = stream_context_alloc_buffer(ctx,
+                                      msg_len > PAL_SEC_INIT_BUFSIZE ?
+                                      msg_len : PAL_SEC_INIT_BUFSIZE);
+    if (ret < 0)
+        return ret;
+
+    uint8_t * output = ctx->buf;
+    uint8_t * enc = output + sizeof(ctx->hdr);
+    uint64_t enc_len = 0;
+    memcpy(output, &ctx->hdr, sizeof(ctx->hdr));
+
+    ret = lib_AESGCMAuthEncrypt(&ctx->ctx,
+                                (const uint8_t *) &ctx->iv,
+                                sizeof(ctx->iv),
+                                (const uint8_t *) &ctx->hdr,
+                                sizeof(ctx->hdr),
+                                (const uint8_t *) buffer, count,
+                                (uint8_t *) enc, &enc_len,
+                                (uint8_t *) &tag, sizeof(tag));
+
+    if (ret < 0)
+        goto out;
+
+    assert(enc_len > 0);
+
+    if (enc_len > 16)
+        SGX_DBG(DBG_O, "[ENC %08lx] Enc = %s ... (%d bytes) Tag = %s\n",
+                ctx->hdr.epoch, __hex2str(enc, 16), enc_len, hex2str(tag));
+    else
+        SGX_DBG(DBG_O, "[ENC %08lx] Enc = %s Tag = %s\n",
+                ctx->hdr.epoch, __hex2str(enc, enc_len), hex2str(tag));
+
+    SGX_DBG(DBG_O, "[ENC %08lx] Sending %d bytes to the stream\n",
+            ctx->hdr.epoch, msg_len);
+
+    memcpy(enc + enc_len, &tag, sizeof(tag));
+
+    int sent = 0;
+    while (sent < msg_len) {
+        ret = write(handle, 0, msg_len - sent, output + sent);
+        if (ret < 0)
+            goto out;
+
+        sent += ret;
+    }
+
+    ctx->hdr.epoch = (ctx->hdr.epoch & SERVER_SIDE_EPOCH)|
+                     ((ctx->hdr.epoch + 1) & ~SERVER_SIDE_EPOCH);
+
+out:
+    return ret < 0 ? ret : count;
 }
