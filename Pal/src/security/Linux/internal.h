@@ -10,8 +10,6 @@
 
 #include "api.h"
 
-#define PAL_LOADER  XSTRINGIFY(PAL_LOADER_PATH)
-
 #ifdef __x86_64__
 # include "sysdep-x86_64.h"
 #else
