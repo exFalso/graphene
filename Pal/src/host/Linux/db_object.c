@@ -33,13 +33,17 @@
 #include "api.h"
 
 #include <linux/time.h>
-#include <linux/poll.h>
 #include <linux/wait.h>
 #include <atomic.h>
 #include <cmpxchg.h>
 #include <asm/errno.h>
+#include <select.h>
 
 #define DEFAULT_QUANTUM 500
+
+#ifndef FIONREAD
+# define FIONREAD 0x541B
+#endif
 
 /* internally to wait for one object. Also used as a shortcut to wait
  *  on events and semaphores.
@@ -61,36 +65,43 @@ static int _DkObjectWaitOne (PAL_HANDLE handle, uint64_t timeout)
             timeout_ts.tv_nsec = microsec * 1000;
         }
 
-        struct pollfd fds[MAX_FDS];
-        int off[MAX_FDS];
+        __kernel_fd_set rfds, wfds, efds;
+        __FD_ZERO(&rfds);
+        __FD_ZERO(&wfds);
+        __FD_ZERO(&efds);
         int nfds = 0;
         for (int i = 0 ; i < MAX_FDS ; i++) {
-            int events = 0;
+            PAL_FLG flags = HANDLE_HDR(handle)->flags >> i;
 
-            if ((HANDLE_HDR(handle)->flags & RFD(i)) &&
-                !(HANDLE_HDR(handle)->flags & ERROR(i)))
-                events |= POLLIN;
+            if (!(flags & 00011))
+                continue;
 
-            if ((HANDLE_HDR(handle)->flags & WFD(i)) &&
-                !(HANDLE_HDR(handle)->flags & WRITEABLE(i)) &&
-                !(HANDLE_HDR(handle)->flags & ERROR(i)))
-                events |= POLLOUT;
+            PAL_IDX fd = HANDLE_HDR(handle)->fds[i];
 
-            if (events) {
-                fds[nfds].fd = HANDLE_HDR(handle)->fds[i];
-                fds[nfds].events = events|POLLHUP|POLLERR;
-                fds[nfds].revents = 0;
-                off[nfds] = i;
-                nfds++;
+            if (fd == PAL_IDX_POISON)
+                continue;
+
+            if ((flags & 01001) == 00001) {
+                __FD_SET(fd, &rfds);
+                __FD_SET(fd, &efds);
+            }
+
+            if ((flags & 01110) == 00010) {
+                __FD_SET(fd, &wfds);
+                __FD_SET(fd, &efds);
+            }
+
+            if (__FD_ISSET(fd, &efds)) {
+                if (nfds <= fd)
+                    nfds = fd + 1;
             }
         }
 
         if (!nfds)
             return -PAL_ERROR_TRYAGAIN;
 
-        int ret = INLINE_SYSCALL(ppoll, 5, &fds, nfds,
-                                 timeout >= 0 ? &timeout_ts : NULL,
-                                 NULL, 0);
+        int ret = INLINE_SYSCALL(pselect6, 6, nfds, &rfds, &wfds, &efds,
+                                 timeout >= 0 ? &timeout_ts : NULL, NULL);
 
         if (IS_ERR(ret))
             switch (ERRNO(ret)) {
@@ -104,13 +115,42 @@ static int _DkObjectWaitOne (PAL_HANDLE handle, uint64_t timeout)
         if (!ret)
             return -PAL_ERROR_TRYAGAIN;
 
-        for (int i = 0 ; i < nfds ; i++) {
-            if (!fds[i].revents)
+        for (int i = 0 ; i < MAX_FDS ; i++) {
+            PAL_FLG flags = HANDLE_HDR(handle)->flags >> i;
+
+            if (!(flags & 00011))
                 continue;
-            if (fds[i].revents & POLLOUT)
-                HANDLE_HDR(handle)->flags |= WRITEABLE(off[i]);
-            if (fds[i].revents & (POLLHUP|POLLERR))
-                HANDLE_HDR(handle)->flags |= ERROR(off[i]);
+
+            PAL_IDX fd = HANDLE_HDR(handle)->fds[i];
+
+            if (fd == PAL_IDX_POISON)
+                continue;
+
+            if (!__FD_ISSET(fd, &rfds) &&
+                !__FD_ISSET(fd, &wfds) &&
+                !__FD_ISSET(fd, &efds))
+                continue;
+
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    uint64_t val = 0;
+                    ret = INLINE_SYSCALL(ioctl, 3, fd, FIONREAD, &val);
+                    if (IS_ERR(ret) || !val) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
+
+            if (__FD_ISSET(fd, &wfds))
+                HANDLE_HDR(handle)->flags |= WRITEABLE(i);
+            if (__FD_ISSET(fd, &efds))
+                HANDLE_HDR(handle)->flags |= ERROR(i);
         }
 
         return 0;
@@ -139,64 +179,41 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
         return rv;
     }
 
-    int i, j, ret, maxfds = 0, nfds = 0;
+    __kernel_fd_set rfds, wfds, efds;
+    __FD_ZERO(&rfds);
+    __FD_ZERO(&wfds);
+    __FD_ZERO(&efds);
+    int n, i, ret, nfds = 0;
 
-    /* we are not gonna to allow any polling on muliple synchronous
-       objects, doing this is simply violating the division of
-       labor between PAL and library OS */
-    for (i = 0 ; i < count ; i++) {
-        PAL_HANDLE hdl = handleArray[i];
-
-        if (!hdl)
+    for (n = 0 ; n < count ; n++) {
+        PAL_HANDLE handle = handleArray[n];
+        if (!handle)
             continue;
 
-        if (!(HANDLE_HDR(hdl)->flags & HAS_FDS))
-            return -PAL_ERROR_NOTSUPPORT;
+        for (i = 0 ; i < MAX_FDS ; i++) {
+            PAL_FLG flags = HANDLE_HDR(handle)->flags >> i;
 
-        /* eliminate repeated entries */
-        for (j = 0 ; j < i ; j++)
-            if (hdl == handleArray[j])
-                break;
-        if (j == i) {
-            for (j = 0 ; j < MAX_FDS ; j++)
-                if (HANDLE_HDR(hdl)->flags & (RFD(j)|WFD(j)))
-                    maxfds++;
-        }
-    }
+            if (!(flags & 00011))
+                continue;
 
-    struct pollfd * fds = __alloca(sizeof(struct pollfd) * maxfds);
-    PAL_HANDLE * hdls = __alloca(sizeof(PAL_HANDLE) * maxfds);
+            PAL_IDX fd = HANDLE_HDR(handle)->fds[i];
 
-    for (i = 0 ; i < count ; i++) {
-        PAL_HANDLE hdl = handleArray[i];
+            if (fd == PAL_IDX_POISON)
+                continue;
 
-        if (!hdl)
-            continue;
+            if ((flags & 01001) == 00001) {
+                __FD_SET(fd, &rfds);
+                __FD_SET(fd, &efds);
+            }
 
-        for (j = 0 ; j < i ; j++)
-            if (hdl == handleArray[j])
-                break;
-        if (j < i)
-            continue;
+            if ((flags & 01110) == 00010) {
+                __FD_SET(fd, &wfds);
+                __FD_SET(fd, &efds);
+            }
 
-        for (j = 0 ; j < MAX_FDS ; j++) {
-            int events = 0;
-
-            if ((HANDLE_HDR(hdl)->flags & RFD(j)) &&
-                !(HANDLE_HDR(hdl)->flags & ERROR(j)))
-                events |= POLLIN;
-
-            if ((HANDLE_HDR(hdl)->flags & WFD(j)) &&
-                !(HANDLE_HDR(hdl)->flags & WRITEABLE(j)) &&
-                !(HANDLE_HDR(hdl)->flags & ERROR(j)))
-                events |= POLLOUT;
-
-            if (events && HANDLE_HDR(hdl)->fds[j] != PAL_IDX_POISON) {
-                fds[nfds].fd = HANDLE_HDR(hdl)->fds[j];
-                fds[nfds].events = events|POLLHUP|POLLERR;
-                fds[nfds].revents = 0;
-                hdls[nfds] = hdl;
-                nfds++;
+            if (__FD_ISSET(fd, &efds)) {
+                if (nfds <= fd)
+                    nfds = fd + 1;
             }
         }
     }
@@ -213,9 +230,8 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
         timeout_ts.tv_nsec = microsec * 1000;
     }
 
-    ret = INLINE_SYSCALL(ppoll, 5, fds, nfds,
-                         timeout >= 0 ? &timeout_ts : NULL,
-                         NULL, 0);
+    ret = INLINE_SYSCALL(pselect6, 6, nfds, &rfds, &wfds, &efds,
+                         timeout >= 0 ? &timeout_ts : NULL, NULL);
 
     if (IS_ERR(ret))
         switch (ERRNO(ret)) {
@@ -231,31 +247,50 @@ int _DkObjectsWaitAny (int count, PAL_HANDLE * handleArray, uint64_t timeout,
 
     PAL_HANDLE polled_hdl = NULL;
 
-    for (i = 0 ; i < nfds ; i++) {
-        if (!fds[i].revents)
+    for (n = 0 ; n < count ; n++) {
+        PAL_HANDLE handle = handleArray[n];
+        if (!handle)
             continue;
 
-        PAL_HANDLE hdl = hdls[i];
+        for (i = 0 ; i < MAX_FDS ; i++) {
+            PAL_FLG flags = HANDLE_HDR(handle)->flags >> i;
 
-        if (polled_hdl) {
-            if (hdl != polled_hdl)
+            if (!(flags & 00011))
                 continue;
-        } else {
-            polled_hdl = hdl;
+
+            PAL_IDX fd = HANDLE_HDR(handle)->fds[i];
+
+            if (fd == PAL_IDX_POISON)
+                continue;
+
+            if (!__FD_ISSET(fd, &rfds) &&
+                !__FD_ISSET(fd, &wfds) &&
+                !__FD_ISSET(fd, &efds))
+                continue;
+
+            if (__FD_ISSET(fd, &rfds)) {
+                if (IS_HANDLE_TYPE(handle, pipe) ||
+                    IS_HANDLE_TYPE(handle, pipeprv) ||
+                    IS_HANDLE_TYPE(handle, tcp) ||
+                    IS_HANDLE_TYPE(handle, udp) ||
+                    IS_HANDLE_TYPE(handle, process)) {
+
+                    /* check if closed */
+                    uint64_t val = 0;
+                    ret = INLINE_SYSCALL(ioctl, 3, fd, FIONREAD, &val);
+                    if (IS_ERR(ret) || !val) {
+                        HANDLE_HDR(handle)->flags |= ERROR(i);
+                    }
+                }
+            }
+
+            polled_hdl = polled_hdl ? : handle;
+
+            if (__FD_ISSET(fd, &wfds))
+                HANDLE_HDR(handle)->flags |= WRITEABLE(i);
+            if (__FD_ISSET(fd, &efds))
+                HANDLE_HDR(handle)->flags |= ERROR(i);
         }
-
-        for (j = 0 ; j < MAX_FDS ; j++)
-            if ((HANDLE_HDR(hdl)->flags & (RFD(j)|WFD(j))) &&
-                HANDLE_HDR(hdl)->fds[j] == fds[i].fd)
-                break;
-
-        if (j == MAX_FDS)
-            continue;
-
-        if (fds[i].revents & POLLOUT)
-            HANDLE_HDR(hdl)->flags |= WRITEABLE(j);
-        if (fds[i].revents & (POLLHUP|POLLERR))
-            HANDLE_HDR(hdl)->flags |= ERROR(j);
     }
 
     *polled = polled_hdl;

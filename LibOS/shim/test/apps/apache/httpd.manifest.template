@@ -25,6 +25,9 @@ fs.mount.cwd.uri = file:
 # allow to bind on port for listening
 net.allow_bind.1 = $(HOST):$(PORT)
 
+sgx.enclave_size = 256M
+sgx.thread_num = 32
+
 sgx.search_trusted_libs.libc = file:$(LIBCDIR)
 sgx.search_trusted_libs.obj = file:obj/lib
 

@@ -32,6 +32,7 @@ sys.stack.size = 256K
 sys.brk.size = 4M
 glibc.heap_size = 16M
 
+sgx.enclave_size = 256M
 sgx.thread_num = 32
 
 sgx.search_trusted_libs.libc = file:$(LIBCDIR)

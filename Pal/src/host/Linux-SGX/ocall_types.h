@@ -42,7 +42,7 @@ enum {
     OCALL_SOCK_SHUTDOWN,
     OCALL_GETTIME,
     OCALL_SLEEP,
-    OCALL_POLL,
+    OCALL_SELECT,
     OCALL_RENAME,
     OCALL_DELETE,
     OCALL_LOAD_DEBUG,
@@ -242,10 +242,12 @@ typedef struct {
 } ms_ocall_sleep_t;
 
 typedef struct {
-    struct pollfd * ms_fds;
+    __kernel_fd_set * ms_rfds;
+    __kernel_fd_set * ms_wfds;
+    __kernel_fd_set * ms_efds;
     int ms_nfds;
     uint64_t ms_timeout;
-} ms_ocall_poll_t;
+} ms_ocall_select_t;
 
 typedef struct {
     const char * ms_oldpath;
