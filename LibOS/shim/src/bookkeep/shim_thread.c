@@ -326,10 +326,9 @@ void put_thread (struct shim_thread * thread)
         if (!IS_INTERNAL(thread))
             release_pid(thread->tid);
 
-        if (thread->pal_handle) {
+        if (thread->pal_handle &&
+            thread->pal_handle != PAL_CB(first_thread))
             DkObjectClose(thread->pal_handle);
-            thread->pal_handle = NULL;
-        }
 
         if (thread->scheduler_event)
             DkObjectClose(thread->scheduler_event);
