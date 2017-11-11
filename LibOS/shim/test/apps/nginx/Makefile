@@ -5,13 +5,13 @@ PORT = 8000
 CORES = 4
 THREADS = 25
 
-conf_files = http.t
+conf_files = http.t https.t
 
 target = build-nginx $(conf_files) test-data
 exec_target = $(manifests)
 clean-extra = clean-others
 
-extra_rules = -e 's:\$$(HOST):$(HOST):g' -e 's:\$$(PORT):$(PORT):g'
+extra_rules = -e 's:\$$(HOST):$(HOST):g' -e 's:\$$(PORT):$(PORT):g' -e 's:\$$(PWD):$(PWD):g'
 
 level = ../../
 include ../../Makefile
@@ -19,7 +19,7 @@ include ../../Makefile
 build-nginx: build/sbin/nginx
 
 build/sbin/nginx: $(SRCDIR)
-	cd $(SRCDIR) && ./configure --prefix=$(PWD)/build
+	cd $(SRCDIR) && ./configure --prefix=$(PWD)/build --with-http_stub_status_module --with-http_ssl_module
 	$(MAKE) -C $(SRCDIR)
 	$(MAKE) -C $(SRCDIR) install
 
@@ -29,11 +29,21 @@ $(SRCDIR): %: %.tar.gz
 $(conf_files): %.t: %.t.template
 	sed $(extra_rules) $< > $@
 
-start-native-server:
+server.key: server.crt
+server.crt:
+	openssl req -new -x509 -keyout server.key -out server.crt -days 365 -nodes -subj "/cn=lighttpd/o=oscar/dc=cs/dc=stonybrook/dc=edu/"
+
+start-native-server: http.t
 	$(PREFIX) build/sbin/nginx -c $(abspath http.t)
 
-start-graphene-server:
+start-ssl-native-server: server.crt server.key https.t
+	$(PREFIX) build/sbin/nginx -c $(abspath https.t)
+
+start-graphene-server: http.t
 	$(PREFIX) ./nginx.manifest -c $(abspath http.t) -g "user root;"
+
+start-ssl-graphene-server: server.crt server.key https.t
+	$(PREFIX) ./nginx.manifest -c $(abspath https.t) -g "user root;"
 
 random-data = $(foreach n,1 2 3 4 5 6 7 8 9 10,2K.$n.html) \
 	      $(foreach n,1 2 3 4 5,10K.$n.html) \
