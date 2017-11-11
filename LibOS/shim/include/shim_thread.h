@@ -58,7 +58,10 @@ struct shim_thread {
     __sigset_t signal_mask;
     struct shim_signal_handle signal_handles[NUM_SIGS];
     struct shim_atomic has_signal;
-    struct shim_signal_log * signal_logs;
+    union {
+        struct shim_signal * signal;
+        struct shim_signal_queue * signal_queue;
+    } signal_logs[NUM_SIGS - 1];
     bool suspend_on_signal;
     stack_t signal_altstack;
 
@@ -188,10 +191,6 @@ void set_cur_thread (struct shim_thread * thread)
         tcb->tp = thread;
         thread->tcb = container_of(tcb, __libc_tcb_t, shim_tcb);
         tid = thread->tid;
-
-        if (!IS_INTERNAL(thread) && !thread->signal_logs)
-            thread->signal_logs = malloc(sizeof(struct shim_signal_log) *
-                                         NUM_SIGS);
     } else if (tcb->tp) {
         put_thread(tcb->tp);
         tcb->tp = NULL;

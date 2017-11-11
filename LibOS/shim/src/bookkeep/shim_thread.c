@@ -231,8 +231,6 @@ struct shim_thread * get_new_thread (IDTYPE new_tid)
         }
     }
 
-    thread->signal_logs = malloc(sizeof(struct shim_signal_log) *
-                                 NUM_SIGS);
     thread->vmid = cur_process.vmid;
     create_lock(thread->lock);
     thread->scheduler_event = DkNotificationEventCreate(PAL_TRUE);
@@ -620,7 +618,6 @@ BEGIN_CP_FUNC(thread)
         new_thread->handle_map = NULL;
         new_thread->root   = NULL;
         new_thread->cwd    = NULL;
-        new_thread->signal_logs = NULL;
         new_thread->robust_list = NULL;
         REF_SET(new_thread->ref_count, 0);
 
@@ -633,6 +630,8 @@ BEGIN_CP_FUNC(thread)
                        thread->signal_handles[i].action,
                        sizeof(struct __kernel_sigaction));
             }
+
+        memset(&new_thread->signal_logs, 0, sizeof(new_thread->signal_logs));
 
         DO_CP_MEMBER(handle, thread, new_thread, exec);
         DO_CP_MEMBER(handle_map, thread, new_thread, handle_map);
@@ -705,7 +704,7 @@ BEGIN_CP_FUNC(running_thread)
     }
 }
 END_CP_FUNC(running_thread)
-    
+
 int resume_wrapper (void * param)
 {
     struct shim_thread * thread = (struct shim_thread *) param;
@@ -732,12 +731,9 @@ BEGIN_RS_FUNC(running_thread)
     struct shim_thread * thread = (void *) (base + GET_CP_FUNC_ENTRY());
     struct shim_thread * cur_thread = get_cur_thread();
     thread->in_vm = true;
-    
+
     if (!thread->user_tcb)
         CP_REBASE(thread->tcb);
-
-    thread->signal_logs = malloc(sizeof(struct shim_signal_log) *
-                                 NUM_SIGS);
 
     if (cur_thread) {
         PAL_HANDLE handle = DkThreadCreate(resume_wrapper, thread, 0);
@@ -747,7 +743,7 @@ BEGIN_RS_FUNC(running_thread)
         thread->pal_handle = handle;
     } else {
         __libc_tcb_t * libc_tcb = (__libc_tcb_t *) thread->tcb;
-        
+
         if (libc_tcb) {
             shim_tcb_t * tcb = &libc_tcb->shim_tcb;
             assert(tcb->context.sp);
@@ -758,11 +754,11 @@ BEGIN_RS_FUNC(running_thread)
         } else {
             set_cur_thread(thread);
         }
-        
+
         thread->in_vm = thread->is_alive = true;
         thread->pal_handle = PAL_CB(first_thread);
     }
-    
+
     DEBUG_RS("tid=%d", thread->tid);
 }
 END_RS_FUNC(running_thread)

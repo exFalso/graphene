@@ -38,58 +38,94 @@
 static struct shim_signal **
 allocate_signal_log (struct shim_thread * thread, int sig)
 {
-    if (!thread->signal_logs)
-        return NULL;
+    struct shim_signal ** log, * old_signal = NULL;
 
-    struct shim_signal_log * log = &thread->signal_logs[sig - 1];
+    if (sig <= NUM_STANDARD_SIGS) {
+        log = &thread->signal_logs[sig - 1].signal;
+        goto out;
+    }
+
+    struct shim_signal_queue * queue = thread->signal_logs[sig - 1].signal_queue;
     int head, tail, old_tail;
 
-    do {
-        head = atomic_read(&log->head);
-        old_tail = tail = atomic_read(&log->tail);
-
-        if (head == tail + 1 || (!head && tail == (MAX_SIGNAL_LOG - 1)))
+    /* allocate signal queue if no yet does it */
+    if (!queue) {
+        struct shim_signal_queue * new_queue
+                = malloc(sizeof(struct shim_signal_queue));
+        if (!new_queue)
             return NULL;
 
-        tail = (tail == MAX_SIGNAL_LOG - 1) ? 0 : tail + 1;
-    } while (atomic_cmpxchg(&log->tail, old_tail, tail) == tail);
+        lock(thread->lock);
+        queue = thread->signal_logs[sig - 1].signal_queue;
+        if (!queue)
+            thread->signal_logs[sig - 1].signal_queue = queue = new_queue;
+        unlock(thread->lock);
 
-    debug("signal_logs[%d]: head=%d, tail=%d\n", sig -1, head, tail);
+        if (queue != new_queue)
+            free(new_queue);
+    }
 
-    atomic_inc(&thread->has_signal);
+    do {
+        head = atomic_read(&queue->head);
+        old_tail = tail = atomic_read(&queue->tail);
 
-    return &log->logs[old_tail];
+        if (head == tail + 1 || (!head && tail == (MAX_SIGNAL_QUEUE - 1)))
+            return NULL;
+
+        tail = (tail == MAX_SIGNAL_QUEUE - 1) ? 0 : tail + 1;
+        log = &queue->logs[old_tail];
+    } while (atomic_cmpxchg(&queue->tail, old_tail, tail) == tail);
+
+    debug("signal %d: head=%d, tail=%d\n", sig, head, tail);
+
+out:
+    old_signal = xchg(log, NULL);
+
+    if (old_signal)
+        free(old_signal);
+    else
+        atomic_inc(&thread->has_signal);
+
+    return log;
 }
 
 static struct shim_signal *
 fetch_signal_log (shim_tcb_t * tcb, struct shim_thread * thread, int sig)
 {
-    struct shim_signal_log * log = &thread->signal_logs[sig - 1];
     struct shim_signal * signal = NULL;
+
+    if (sig <= NUM_STANDARD_SIGS) {
+        signal = xchg(&thread->signal_logs[sig - 1].signal, NULL);
+        goto out;
+    }
+
+    struct shim_signal_queue * queue = thread->signal_logs[sig - 1].signal_queue;
     int head, tail, old_head;
 
     while (1) {
-        old_head = head = atomic_read(&log->head);
-        tail = atomic_read(&log->tail);
+        old_head = head = atomic_read(&queue->head);
+        tail = atomic_read(&queue->tail);
 
         if (head == tail)
             return NULL;
 
-        if (!(signal = log->logs[head]))
+        if (!(signal = queue->logs[head]))
             return NULL;
 
-        log->logs[head] = NULL;
-        head = (head == MAX_SIGNAL_LOG - 1) ? 0 : head + 1;
+        queue->logs[head] = NULL;
+        head = (head == MAX_SIGNAL_QUEUE - 1) ? 0 : head + 1;
 
-        if (atomic_cmpxchg(&log->head, old_head, head) == old_head)
+        if (atomic_cmpxchg(&queue->head, old_head, head) == old_head)
             break;
 
-        log->logs[old_head] = signal;
+        queue->logs[old_head] = signal;
     }
 
-    debug("signal_logs[%d]: head=%d, tail=%d\n", sig -1, head, tail);
+    debug("signal %d: head=%d, tail=%d\n", sig, head, tail);
 
-    atomic_dec(&thread->has_signal);
+out:
+    if (signal)
+        atomic_dec(&thread->has_signal);
 
     return signal;
 }
@@ -497,7 +533,7 @@ __handle_one_signal (shim_tcb_t * tcb, int sig, struct shim_signal * signal)
 void __handle_signal (shim_tcb_t * tcb, int sig, ucontext_t * uc)
 {
     struct shim_thread * thread = (struct shim_thread *) tcb->tp;
-    int begin_sig = 1, end_sig = NUM_KNOWN_SIGS;
+    int begin_sig = 1, end_sig = NUM_SIGS;
 
     if (sig)
         end_sig = (begin_sig = sig) + 1;
