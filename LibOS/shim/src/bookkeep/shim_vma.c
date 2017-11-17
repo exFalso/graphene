@@ -36,6 +36,8 @@
 #include <asm/mman.h>
 #include <errno.h>
 
+DEFINE_PROFILE_CATAGORY(vma,);
+
 unsigned long mem_max_npages __attribute_migratable = DEFAULT_MEM_MAX_NPAGES;
 
 static void * heap_top, * heap_bottom;
@@ -684,6 +686,11 @@ static void __set_heap_top (void * bottom, void * top)
     debug("heap top adjusted to %p\n", heap_top);
 }
 
+DEFINE_PROFILE_CATAGORY(get_unmapped_vma, vma);
+DEFINE_PROFILE_INTERVAL(walk_vma_list_for_unmapped, get_unmapped_vma);
+DEFINE_PROFILE_INTERVAL(test_vma_list_for_unmapped, get_unmapped_vma);
+DEFINE_PROFILE_INTERVAL(check_space_for_unmapped,   get_unmapped_vma);
+
 void * get_unmapped_vma (uint64_t length, int flags)
 {
     struct shim_vma * new = get_new_vma(), * prev = NULL;
@@ -705,55 +712,58 @@ void * get_unmapped_vma (uint64_t length, int flags)
     debug("find unmapped vma between %p-%p\n", heap_bottom, heap_top);
 
     do {
-        int found = 0;
+        struct shim_vma * tmp;
+        prev = NULL;
+        listp_for_each_entry(tmp, &vma_list, list) {
+            if (tmp->addr > heap_top)
+                break;
+            prev = tmp;
+        }
+
         new->addr   = heap_top - length;
         new->length = length;
         new->flags  = flags|VMA_UNMAPPED;
         new->prot   = PROT_NONE;
 
-        listp_for_each_entry_reverse(prev, &vma_list, list) {
-            if (new->addr >= prev->addr + prev->length) {
-                found = 1;
-                break;
-            }
+        if (!prev || new->addr >= prev->addr + prev->length)
+            goto found;
 
-            if (new->addr < heap_bottom) {
-                found = 1;
-                break;
-            }
+        new->addr = prev->addr - length;
+        BEGIN_PROFILE_INTERVAL();
+        listp_for_each_entry_reverse_continue(prev, &vma_list, list) {
+            SAVE_PROFILE_INTERVAL(walk_vma_list_for_unmapped);
 
-            if (prev->addr - heap_bottom < length) {
-                unlock(vma_list_lock);
-                put_vma(new);
-                return NULL;
-            }
+            if (new->addr >= prev->addr + prev->length)
+                goto found;
 
-            if (new->addr > prev->addr - length)
-                new->addr = prev->addr - length;
+            if (prev->addr - length < heap_bottom)
+                goto ooh;
+
+            new->addr = prev->addr - length;
+            SAVE_PROFILE_INTERVAL(test_vma_list_for_unmapped);
         }
-
 
         /* DEP 6/4/17: This case appears to be detecting whether you wrapped around the
          * list wtihout finding anything. Let's add an explicit variable for
          * this case, but keep the check for now to be safe. */
-        if (listp_empty(&vma_list)
-            || (!found && (prev == listp_last_entry(&vma_list, shim_vma, list)))) {
-            prev = NULL;
-            break;
-        }
+        prev = NULL;
+        break;
 
-        if (new->addr < heap_bottom) {
-            if (heap_top == PAL_CB(user_address.end)) {
-                unlock(vma_list_lock);
-                put_vma(new);
-                return NULL;
-            } else {
-                __set_heap_top(heap_top, (void *) PAL_CB(user_address.end));
-                new->addr = NULL;
-            }
+ooh:
+        SAVE_PROFILE_INTERVAL(check_space_for_unmapped);
+
+        if (heap_top == PAL_CB(user_address.end)) {
+            unlock(vma_list_lock);
+            put_vma(new);
+            return NULL;
+        } else {
+            __set_heap_top(heap_top, (void *) PAL_CB(user_address.end));
+            new->addr = NULL;
         }
     } while (!new->addr);
 
+found:
+    SAVE_PROFILE_INTERVAL(check_space_for_unmapped);
     assert(!prev || prev->addr + prev->length <= new->addr);
     get_vma(new);
     listp_add_after(new, prev, &vma_list, list);

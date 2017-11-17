@@ -257,6 +257,11 @@
         first_iter || ((CURSOR) && (CURSOR)->FIELD.next != (HEAD)->first); \
         (CURSOR) = (CURSOR)->FIELD.prev, first_iter = 0)
 
+#define listp_for_each_entry_reverse_continue(CURSOR, HEAD, FIELD)      \
+    for((CURSOR) = (CURSOR)->FIELD.prev;                                \
+        (CURSOR) && (CURSOR)->FIELD.next != (HEAD)->first;              \
+        (CURSOR) = (CURSOR)->FIELD.prev)
+
 #define listp_for_each_entry_safe(CURSOR, TMP, HEAD, FIELD)             \
     for(int first_iter = ({(CURSOR) = (HEAD)->first;                    \
                     (TMP) = ((CURSOR) ? (CURSOR)->FIELD.next : (CURSOR)); \

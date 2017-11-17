@@ -41,14 +41,14 @@ struct shim_handle;
 
 DEFINE_LIST(shim_vma);
 struct shim_vma {
-    REFTYPE                 ref_count;
+    LIST_TYPE(shim_vma)     list;
     void *                  addr;
     uint64_t                length;
+    REFTYPE                 ref_count;
     int                     prot;
     int                     flags;
     uint64_t                offset;
     struct shim_handle *    file;
-    LIST_TYPE(shim_vma)     list;
     char                    comment[VMA_COMMENT_LEN];
 };
 
