@@ -14,6 +14,13 @@
 #define USE_VDSO_GETTIME        1
 #define USE_CLOCK_GETTIME       1
 
+/* default size of a new thread stack */
+/* DEP 2/4/17: There is enough stuff allocated on the PAL stack now
+ *   that we need two pages in Linux host mode.  In SGX mode,
+ *   the enclave/non-clave split makes 1 page in/1 out sufficient.
+ */
+#define THREAD_STACK_SIZE  (16*1024)
+
 #define USE_ARCH_RDRAND         0
 
 #define BLOCK_SIGFAULT          0
