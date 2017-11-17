@@ -237,17 +237,7 @@ sleep 3
 
 date >> ${OUTPUT}
 echo Bandwidth measurements >> ${OUTPUT}
-run_repeat_bandwidth bw_pipe 1M
-run_repeat_bandwidth bw_pipe 4M
-run_repeat_bandwidth bw_pipe 16M
-run_repeat_bandwidth bw_pipe 256M
-run_repeat_bandwidth bw_gipc 1M
-run_repeat_bandwidth bw_gipc 4M
-run_repeat_bandwidth bw_gipc 16M
-run_repeat_bandwidth bw_gipc 256M
-
-
-
-
+run_repeat_bandwidth bw_pipe
+run_repeat_bandwidth bw_gipc
 
 exit 0

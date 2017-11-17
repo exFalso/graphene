@@ -146,18 +146,11 @@ void mbedtls_aesni_gcm_mult( unsigned char c[16],
                      const unsigned char a[16],
                      const unsigned char b[16] )
 {
-    unsigned char aa[16], bb[16], cc[16];
-    size_t i;
-
-    /* The inputs are in big-endian order, so byte-reverse them */
-    for( i = 0; i < 16; i++ )
-    {
-        aa[i] = a[15 - i];
-        bb[i] = b[15 - i];
-    }
-
     asm( "movdqu (%0), %%xmm0               \n\t" // a1:a0
          "movdqu (%1), %%xmm1               \n\t" // b1:b0
+
+         "shufps $0x1b, %%xmm0, %%xmm0      \n\t" // shuffle a1:a0
+         "shufps $0x1b, %%xmm1, %%xmm1      \n\t" // shuffle b1:b0
 
          /*
           * Caryless multiplication xmm2:xmm1 = xmm0 * xmm1
@@ -238,14 +231,12 @@ void mbedtls_aesni_gcm_mult( unsigned char c[16],
          "pxor %%xmm1, %%xmm0               \n\t" // h1:h0
          "pxor %%xmm2, %%xmm0               \n\t" // x3+h1:x2+h0
 
+         "shufps $0x1b, %%xmm0, %%xmm0       \n\t" // shuffle c1:c0
+
          "movdqu %%xmm0, (%2)               \n\t" // done
          :
-         : "r" (aa), "r" (bb), "r" (cc)
+         : "r" (a), "r" (b), "r" (c)
          : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5" );
-
-    /* Now byte-reverse the outputs */
-    for( i = 0; i < 16; i++ )
-        c[i] = cc[15 - i];
 
     return;
 }
