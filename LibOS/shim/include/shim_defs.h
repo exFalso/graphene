@@ -26,6 +26,9 @@
 
 #define CHROOT_SKIP_BUFFER_SIZE     2048
 
+#define MAX_SIGNAL_QUEUE            32
+
+
 /* debug message printout */
 #define DEBUGBUF_SIZE               256
 #define DEBUGBUF_BREAK              0

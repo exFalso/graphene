@@ -102,18 +102,16 @@ struct shim_signal {
     PAL_CONTEXT * pal_context;
 };
 
-#define MAX_SIGNAL_LOG      32
-
-struct shim_signal_log {
+struct shim_signal_queue {
     struct shim_atomic head, tail;
-    struct shim_signal * logs[MAX_SIGNAL_LOG];
+    struct shim_signal * logs[MAX_SIGNAL_QUEUE];
 };
 
-extern const char * const siglist[NUM_KNOWN_SIGS + 1];
+extern const char * const siglist[NUM_STANDARD_SIGS + 1];
 
 static_inline const char * signal_name (int sig)
 {
-    if (sig <= NUM_KNOWN_SIGS)
+    if (sig <= NUM_STANDARD_SIGS)
         return siglist[sig];
 
     if (sig >= NUM_SIGS)

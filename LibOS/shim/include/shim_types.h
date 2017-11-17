@@ -158,7 +158,7 @@ typedef unsigned long aio_context_t;
 
 /* asm/signal.h */
 #define NUM_SIGS            64
-#define NUM_KNOWN_SIGS      32
+#define NUM_STANDARD_SIGS   31
 
 typedef struct {
     unsigned long __val[NUM_SIGS / (8 * sizeof(unsigned long))];

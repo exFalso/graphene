@@ -188,15 +188,24 @@ int shim_do_sigsuspend (const __sigset_t * mask)
 int shim_do_sigpending (__sigset_t * set, size_t sigsetsize)
 {
     struct shim_thread * cur = get_cur_thread();
+    int sig;
 
     __sigemptyset(set);
 
     if (!cur->signal_logs)
         return 0;
 
-    for (int sig = 1 ; sig <= NUM_SIGS ; sig++) {
-        if (atomic_read(&cur->signal_logs[sig - 1].head) !=
-            atomic_read(&cur->signal_logs[sig - 1].tail))
+    for (sig = 1 ; sig <= NUM_STANDARD_SIGS ; sig++) {
+        if (cur->signal_logs[sig - 1].signal)
+            __sigaddset(set, sig);
+    }
+
+    for (; sig <= NUM_SIGS ; sig++) {
+        struct shim_signal_queue * queue
+                = cur->signal_logs[sig - 1].signal_queue;
+        if (queue &&
+            atomic_read(&queue->head) !=
+            atomic_read(&queue->tail))
             __sigaddset(set, sig);
     }
 
@@ -214,7 +223,7 @@ struct walk_arg {
 static inline void __append_signal (struct shim_thread * thread, int sig,
                                     IDTYPE sender)
 {
-    debug("Thread %d killed by signal %d\n", thread->tid, sig);
+    debug("Thread %d killed by %s\n", thread->tid, signal_name(sig));
     siginfo_t info;
     memset(&info, 0, sizeof(siginfo_t));
     info.si_signo = sig;

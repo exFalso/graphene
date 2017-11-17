@@ -774,7 +774,7 @@ static void parse_pipe_fds (const char * type, va_list * ap)
 
 #define S(sig) #sig
 
-const char *const siglist[NUM_KNOWN_SIGS + 1] =
+const char *const siglist[NUM_STANDARD_SIGS + 1] =
     {
         S(SIGUNUSED),
         S(SIGHUP),
@@ -814,11 +814,7 @@ const char *const siglist[NUM_KNOWN_SIGS + 1] =
 static void parse_signum (const char * type, va_list * ap)
 {
     unsigned int signum = va_arg(*ap, unsigned int);
-
-    if (signum >= 0 && signum <= NUM_KNOWN_SIGS)
-        PUTS(signal_name(signum));
-    else
-        PRINTF("[SIG %d]", signum);
+    PUTS(signal_name(signum));
 }
 
 static void parse_sigmask (const char * type, va_list * ap)

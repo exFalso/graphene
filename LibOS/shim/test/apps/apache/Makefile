@@ -100,16 +100,48 @@ build-conf:
 </IfModule>\n" >> $(INSTALL_DIR)/conf/httpd.conf.new
 	cd $(INSTALL_DIR)/conf && ln -sf httpd.conf.new httpd.conf
 
+$(INSTALL_DIR)/conf/server.key: $(INSTALL_DIR)/conf/server.crt
+$(INSTALL_DIR)/conf/server.crt:
+	openssl req -new -x509 -keyout $(INSTALL_DIR)/conf/server.key -out $(INSTALL_DIR)/conf/server.crt -days 365 -nodes -subj "/cn=lighttpd/o=oscar/dc=cs/dc=stonybrook/dc=edu/"
+
 clean-server:
 	rm -f $(INSTALL_DIR)/logs/httpd-$(HOST)-$(PORT).pid
 
 start-native-server: clean-server
 	@echo "Listen on $(HOST):$(PORT)"
-	$(PREFIX) $(INSTALL_DIR)/bin/httpd -D FOREGROUND -C "ServerName $(HOST)" -C "Listen $(HOST):$(PORT)" -C "PidFile logs/httpd-$(HOST)-$(PORT).pid"
+	$(PREFIX) $(INSTALL_DIR)/bin/httpd -D FOREGROUND \
+		-C "ServerName $(HOST)" \
+		-C "Listen $(HOST):$(PORT)" \
+		-C "PidFile logs/httpd-$(HOST)-$(PORT).pid"
+
+start-ssl-native-server: clean-server $(addprefix $(INSTALL_DIR)/conf/,server.key server.crt)
+	@echo "Listen on $(HOST):$(PORT)"
+	$(PREFIX) $(INSTALL_DIR)/bin/httpd -D FOREGROUND \
+		-C "ServerName $(HOST)" \
+		-C "Listen $(HOST):$(PORT)" \
+		-C "PidFile logs/httpd-$(HOST)-$(PORT).pid" \
+		-C "LoadModule ssl_module modules/mod_ssl.so" \
+		-C "SSLEngine On" \
+		-C "SSLCertificateFile conf/server.crt" \
+		-C "SSLCertificateKeyFile conf/server.key"
 
 start-graphene-server: clean-server
 	@echo "Listen on $(HOST):$(PORT)"
-	$(PREFIX) ./httpd.manifest -D FOREGROUND -C "ServerName $(HOST)" -C "Listen $(HOST):$(PORT)" -C "PidFile logs/httpd-$(HOST)-$(PORT).pid"
+	$(PREFIX) ./httpd.manifest -D FOREGROUND \
+		-C "ServerName $(HOST)" \
+		-C "Listen $(HOST):$(PORT)" \
+		-C "PidFile logs/httpd-$(HOST)-$(PORT).pid"
+
+start-ssl-graphene-server: clean-server $(addprefix $(INSTALL_DIR)/conf/,server.key server.crt)
+	@echo "Listen on $(HOST):$(PORT)"
+	$(PREFIX) ./httpd.manifest -D FOREGROUND \
+		-C "ServerName $(HOST)" \
+		-C "Listen $(HOST):$(PORT)" \
+		-C "PidFile logs/httpd-$(HOST)-$(PORT).pid" \
+		-C "LoadModule ssl_module modules/mod_ssl.so" \
+		-C "SSLEngine On" \
+		-C "SSLCertificateFile conf/server.crt" \
+		-C "SSLCertificateKeyFile conf/server.key"
 
 random-data = $(foreach n,1 2 3 4 5 6 7 8 9 10,2K.$n.html) \
 	      $(foreach n,1 2 3 4 5,10K.$n.html) \

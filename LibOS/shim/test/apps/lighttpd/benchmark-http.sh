@@ -4,6 +4,12 @@
 # Run like: ./benchmark-http.sh server
 # where server is the host/port running the web server
 
+PROT=http
+if [ "$1" = "-https" ]; then
+	PROT="https"
+	shift
+fi
+
 declare -A THROUGHPUTS
 declare -A LATENCIES
 LOOP=5
@@ -21,8 +27,8 @@ do
 	for CONCURRENCY in $CONCURRENCY_LIST
 	do
 		rm -f OUTPUT
-		echo "ab -n $REQUESTS -c $CONCURRENCY http://$DOWNLOAD_HOST/$DOWNLOAD_FILE"
-		ab -n $REQUESTS -c $CONCURRENCY http://$DOWNLOAD_HOST/$DOWNLOAD_FILE > OUTPUT
+		echo "ab -n $REQUESTS -c $CONCURRENCY $PROT://$DOWNLOAD_HOST/$DOWNLOAD_FILE"
+		ab -n $REQUESTS -c $CONCURRENCY $PROT://$DOWNLOAD_HOST/$DOWNLOAD_FILE > OUTPUT
 
 		sleep 5
 
