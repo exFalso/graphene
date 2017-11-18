@@ -901,8 +901,9 @@ static struct shim_vma * __lookup_supervma (const void * addr, uint64_t length,
                                             struct shim_vma ** pprev)
 {
     struct shim_vma * tmp, * prev = NULL;
-
+    
     listp_for_each_entry(tmp, &vma_list, list) {
+
         if (test_vma_contain(tmp, addr, length)) {
             if (pprev)
                 *pprev = prev;
@@ -910,6 +911,16 @@ static struct shim_vma * __lookup_supervma (const void * addr, uint64_t length,
         }
 
         /* Assert we are really sorted */
+        if (!(!prev || prev->addr + prev->length <= tmp->addr)) {
+            struct shim_vma * tmp2;
+            warn("Failure\n");
+            listp_for_each_entry(tmp2, &vma_list, list) {
+                warn ("Entry: %llx..%llx (%llx)\n", tmp2->addr, tmp2->addr + tmp2->length, tmp2->length);
+            }
+            warn("Prev is %p, tmp->addr = %llx, len is %llx\n", prev, tmp->addr, tmp->length);
+            if (prev)
+                warn("prev addr is %llx, len is %llx\n", prev->addr, prev->length);
+        }
         assert(!prev || prev->addr + prev->length <= tmp->addr);
         /* Insert in order; break once we are past the appropriate point  */
         if (tmp->addr > addr)
