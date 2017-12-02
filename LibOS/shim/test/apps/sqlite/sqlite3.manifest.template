@@ -1,0 +1,28 @@
+#!$(PAL)
+
+loader.preload = file:$(SHIMPATH)
+loader.exec = file:build/bin/sqlite3
+loader.env.LD_LIBRARY_PATH = /build/lib:/lib:/lib/x86_64-linux-gnu:/usr/lib:/usr/lib/x86_64-linux-gnu
+# loader.debug_type = inline
+
+fs.mount.lib.type = chroot
+fs.mount.lib.path = /lib
+fs.mount.lib.uri = file:$(LIBCDIR)
+
+fs.mount.lib64.type = chroot
+fs.mount.lib64.path = /lib/x86_64-linux-gnu
+fs.mount.lib64.uri = file:/lib/x86_64-linux-gnu
+
+fs.mount.usr.type = chroot
+fs.mount.usr.path = /usr
+fs.mount.usr.uri = file:/usr
+
+fs.mount.tmp.type = chroot
+fs.mount.tmp.path = /tmp
+fs.mount.tmp.uri = file:/tmp
+
+sys.stack.size = 256K
+sys.brk.size = 4M
+glibc.heap_size = 16M
+
+sgx.search_trusted_libs.sqlite3 = file:build/lib
