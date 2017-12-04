@@ -168,7 +168,12 @@ int shim_do_fcntl (int fd, int cmd, unsigned long arg)
          *   EACCES or EAGAIN.
          */
         case F_SETLK:
+#if FCNTL_LCK_DUMMY == 1
+            /* XXX: dummy, return 0 for now */
+            ret = 0;
+#else
             ret = -ENOSYS;
+#endif
             break;
 
         /* F_SETLKW (struct flock *)
@@ -179,7 +184,12 @@ int shim_do_fcntl (int fd, int cmd, unsigned long arg)
          *   set to EINTR; see signal(7)).
          */
         case F_SETLKW:
+#if FCNTL_LCK_DUMMY == 1
+            /* XXX: dummy, return 0 for now */
+            ret = 0;
+#else
             ret = -ENOSYS;
+#endif
             break;
 
         /* F_GETLK (struct flock *)
@@ -192,9 +202,16 @@ int shim_do_fcntl (int fd, int cmd, unsigned long arg)
          *   l_whence, l_start, and l_len fields of lock and sets l_pid to be
          *   the PID of the process holding that lock.
          */
-        case F_GETLK:
+        case F_GETLK: {
+#if FCNTL_LCK_DUMMY == 1
+            struct flock * flock = (void *) arg;
+            flock->l_type = F_UNLCK;
+            ret = 0;
+#else
             ret = -ENOSYS;
+#endif
             break;
+        }
 
         /* F_SETOWN (int)
          *   Set  the process ID or process group ID that will receive SIGIO

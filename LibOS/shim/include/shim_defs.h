@@ -28,6 +28,7 @@
 
 #define MAX_SIGNAL_QUEUE            32
 
+#define FCNTL_LCK_DUMMY             1
 
 /* debug message printout */
 #define DEBUGBUF_SIZE               256
