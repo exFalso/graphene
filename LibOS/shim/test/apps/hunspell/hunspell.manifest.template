@@ -26,6 +26,7 @@ sys.stack.size = 256K
 sys.brk.size = 4M
 glibc.heap_size = 16M
 
+sgx.search_trusted_libs.libc = file:$(LIBCDIR)
 sgx.search_trusted_libs.hunspell = file:build/lib
 sgx.trusted_files.gconv = file:gconv-modules
 sgx.trusted_files.ISO88591 = file:ISO8859-1.so
