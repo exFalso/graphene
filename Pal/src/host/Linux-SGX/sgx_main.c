@@ -18,7 +18,10 @@
 #include <sysdep.h>
 #include <sysdeps/generic/ldsodefs.h>
 
-#define ENCLAVE_FILENAME RUNTIME_FILE("libpal-Linux-SGX.so")
+#define ENCLAVE_FILENAME "libpal-Linux-SGX.so"
+#define ENCLAVE_FULLPATH RUNTIME_FILE(ENCLAVE_FILENAME)
+
+static int enclave_image;
 
 unsigned long pagesize  = PRESET_PAGESIZE;
 unsigned long pagemask  = ~(PRESET_PAGESIZE - 1);
@@ -233,7 +236,6 @@ int initialize_enclave (struct pal_enclave * enclave)
 {
     int ret = 0;
 
-    int                  enclave_image;
     int                  enclave_thread_num = 1;
     sgx_arch_token_t     enclave_token;
     sgx_arch_sigstruct_t enclave_sigstruct;
@@ -251,13 +253,6 @@ int initialize_enclave (struct pal_enclave * enclave)
             goto err;                                               \
         } ret;                                                      \
     })
-
-    enclave_image = INLINE_SYSCALL(open, 3, ENCLAVE_FILENAME, O_RDONLY, 0);
-    if (IS_ERR(enclave_image)) {
-        SGX_DBG(DBG_E, "cannot find %s\n", ENCLAVE_FILENAME);
-        ret = -ERRNO(ret);
-        goto err;
-    }
 
     char cfgbuf[CONFIG_MAX];
 
@@ -799,9 +794,6 @@ static int load_enclave (struct pal_enclave * enclave,
     if (ret < 0)
         return ret;
 
-    snprintf(pal_sec->enclave_image,  sizeof(PAL_SEC_STR), "%s",
-             ENCLAVE_FILENAME);
-
     if (!pal_sec->instance_id)
         create_instance(&enclave->pal_sec);
 
@@ -883,8 +875,43 @@ int main (int argc, const char ** argv, const char ** envp)
         } else {
             exec_uri = alloc_concat("file:", -1, argv[0], -1);
         }
+
+        /* search for enclave image */
+        const char * path, * tmp = pal_loader + strlen(pal_loader);
+        for (; tmp > pal_loader && tmp[-1] != '/' ; tmp--);
+
+        /* try local directory first */
+        if (tmp > pal_loader)
+            path = alloc_concat(pal_loader, tmp - pal_loader, ENCLAVE_FILENAME,
+                                static_strlen(ENCLAVE_FILENAME));
+        else
+            path = alloc_concat(ENCLAVE_FILENAME,
+                                static_strlen(ENCLAVE_FILENAME), NULL, -1);
+
+        enclave_image = INLINE_SYSCALL(open, 3, path, O_RDONLY, 0);
+        if (!IS_ERR(enclave_image))
+            goto done_open_image;
+        if (ERRNO(enclave_image) != ENOENT)
+            goto done_open_image;
+
+        path = ENCLAVE_FULLPATH;
+        enclave_image = INLINE_SYSCALL(open, 3, path, O_RDONLY, 0);
+done_open_image:
+        if (IS_ERR(enclave_image)) {
+            SGX_DBG(DBG_E, "cannot find enclave image\n");
+            return -ERRNO(enclave_image);
+        }
+
+        enclave->pal_sec.enclave_image_fd = enclave_image;
+        int len = strlen(path) + 1;
+        if (len >= sizeof(PAL_SEC_STR)) {
+            SGX_DBG(DBG_E, "enclave image name is too long (%s)\n", path);
+            return -ENAMETOOLONG;
+        }
+        memcpy(enclave->pal_sec.enclave_image_name, path, len + 1);
     } else {
         exec_uri = alloc_concat(enclave->pal_sec.exec_name, -1, NULL, -1);
+        enclave_image = enclave->pal_sec.enclave_image_fd;
     }
 
     int fd = INLINE_SYSCALL(open, 3, exec_uri + 5, O_RDONLY|O_CLOEXEC, 0);

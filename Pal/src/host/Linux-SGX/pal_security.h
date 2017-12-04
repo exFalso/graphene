@@ -33,7 +33,8 @@ struct pal_sec {
 
     /* file name of enclave image */
     PAL_PTR         enclave_addr;
-    PAL_SEC_STR     enclave_image;
+    PAL_SEC_STR     enclave_image_name;
+    PAL_IDX         enclave_image_fd;
 
     /* enclave information */
     sgx_arch_hash_t         mrenclave;

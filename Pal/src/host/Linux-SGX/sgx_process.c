@@ -42,6 +42,8 @@
 
 struct proc_args {
     PAL_SEC_STR     exec_name;
+    PAL_IDX         enclave_image_fd;
+    PAL_SEC_STR     enclave_image_name;
     unsigned int    instance_id;
     unsigned int    parent_process_id;
     unsigned int    proc_fds[3];
@@ -116,6 +118,9 @@ out_child:
     struct pal_sec * pal_sec = &current_enclave->pal_sec;
     struct proc_args proc_args;
     memcpy(proc_args.exec_name, uri, sizeof(PAL_SEC_STR));
+    proc_args.enclave_image_fd = pal_sec->enclave_image_fd;
+    memcpy(proc_args.enclave_image_name, pal_sec->enclave_image_name,
+           sizeof(PAL_SEC_STR));
     proc_args.instance_id   = pal_sec->instance_id;
     proc_args.parent_process_id = pal_sec->pid;
     proc_args.proc_fds[0] = proc_fds[0][0];
@@ -180,6 +185,9 @@ int sgx_init_child_process (struct pal_sec * pal_sec)
         return -PAL_ERROR_DENIED;
 
     memcpy(pal_sec->exec_name, proc_args.exec_name, sizeof(PAL_SEC_STR));
+    pal_sec->enclave_image_fd = proc_args.enclave_image_fd;
+    memcpy(pal_sec->enclave_image_name, proc_args.enclave_image_name,
+           sizeof(PAL_SEC_STR));
     pal_sec->instance_id   = proc_args.instance_id;
     pal_sec->ppid        = proc_args.parent_process_id;
     pal_sec->proc_fds[0] = proc_args.proc_fds[0];
