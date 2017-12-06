@@ -328,7 +328,7 @@ static int query_dentry (struct shim_dentry * dent, PAL_HANDLE pal_handle,
 
     lock(data->lock);
 
-    if (!data->queried && (ret = __query_attr(dent, data, pal_handle)) < 0) {
+    if ((ret = __query_attr(dent, data, pal_handle)) < 0) {
         unlock(data->lock);
         return ret;
     }
@@ -420,6 +420,7 @@ static int __chroot_open (struct shim_dentry * dent,
     if (hdl && hdl->pal_handle) {
         palhdl = hdl->pal_handle;
     } else {
+        debug("open file: %s\n", uri);
         palhdl = DkStreamOpen(uri, accmode, mode, creat, option);
 
         if (!palhdl) {

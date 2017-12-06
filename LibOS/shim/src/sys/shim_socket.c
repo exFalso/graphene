@@ -211,7 +211,7 @@ static int inet_translate_addr (int domain, char * uri, int count,
     if (domain == AF_INET6) {
         unsigned short * ad = (void *) &addr->addr.v6.s6_addr;
         int bytes = snprintf(uri, count,
-                             "[%04x:%04x:%x:%04x:%04x:%04x:%04x:%04x]:%u",
+                             "[%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x]:%u",
                              __ntohs(ad[0]), __ntohs(ad[1]),
                              __ntohs(ad[2]), __ntohs(ad[3]),
                              __ntohs(ad[4]), __ntohs(ad[5]),
@@ -1672,7 +1672,7 @@ int shim_do_getsockopt (int fd, int level, int optname, char * optval,
                 }
                 goto out;
             case SO_TYPE:
-                *intval = sock->protocol;
+                *intval = sock->sock_type;
                 goto out;
             case SO_KEEPALIVE:
             case SO_LINGER:
