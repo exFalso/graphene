@@ -20,9 +20,12 @@ CFLAGS-debug = $(CFLAGS) -I$(SHIMDIR)/../include -I$(PALDIR)/../include/pal -I$(
 LDFLAGS	=
 LDFLAGS-debug = $(LDFLAGS) -L$(SHIMDIR) -L$(PALDIR) -Wl,-rpath-link=$(abspath $(RUNTIME))
 
+.PHONY: default
 default: all
+
 include $(PALDIR)/Makefile.Test
 
+.PHONY: all
 all: pal_loader $(target) $(if $(level),,build-subdirs) | $(call expand_target,$(exec_target))
 
 ifeq ($(DEBUG),1)
@@ -64,12 +67,12 @@ manifest: manifest.template
 	@echo [ $@ ]
 	sed $(manifest_rules) $< > $@
 
-.PHONY: test clean
-
+.PHONY: clean
 clean: $(clean-extra) $(if $(level),,clean-subdirs)
 	rm -rf pal_loader $(call expand_target,$(exec_target)) $(target)
 	rm -rf *.manifest.sgx *.sig *.token
 
+.PHONY: build-subdirs
 build-subdirs:
 	for f in $(subdirs); do (cd $$f; $(MAKE); cd ..); done
 
@@ -81,5 +84,6 @@ pack:
 endif
 endif
 
+.PHONY: clean-subdirs
 clean-subdirs:
 	for f in $(subdirs); do (cd $$f; $(MAKE) clean; cd ..); done

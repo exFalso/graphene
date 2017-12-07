@@ -49,6 +49,7 @@ objs += crypto/adapters/wolfssl_adapter.o
 objs += crypto/adapters/wolfssl_dh.o
 endif
 
+.PHONY: all
 all: $(target)graphene-lib.a
 
 ifeq ($(DEBUG),1)
@@ -69,5 +70,6 @@ $(target)%.o: %.c $(headers) ../src/host_endian.h
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+.PHONY: clean
 clean:
 	rm -f $(objs) graphene-lib.a
