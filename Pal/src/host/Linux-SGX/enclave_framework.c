@@ -507,7 +507,7 @@ int init_trusted_files (void)
     }
 
     nuris = get_config_entries(pal_state.root_config, "sgx.trusted_libs",
-                                   cfgbuf, CONFIG_MAX);
+                               cfgbuf);
     if (nuris) {
         char key[CONFIG_MAX], uri[CONFIG_MAX];
         char * k = cfgbuf, * tmp;
@@ -1143,7 +1143,6 @@ int _DkStreamSecureRead (PAL_HANDLE handle,
     ctx->bufoffset -= ctx->hdr.msg_len;
     memmove(ctx->buf, ctx->buf + ctx->hdr.msg_len, ctx->bufoffset);
 
-out:
     return ret < 0 ? ret : dec_len;
 }
 
