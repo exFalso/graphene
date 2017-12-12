@@ -243,44 +243,26 @@ DEFINE_PROFILE_OCCURENCE(alloc_stack_count, memory);
 
 void * allocate_stack (size_t size, size_t protect_size, bool user)
 {
+    int flags = STACK_FLAGS|(user ? 0 : VMA_INTERNAL);
     size = ALIGN_UP(size);
     protect_size = ALIGN_UP(protect_size);
 
     /* preserve a non-readable, non-writeable page below the user
        stack to stop user program to clobber other vmas */
-    void * stack = user ?
-                   get_unmapped_vma(size + protect_size, STACK_FLAGS) :
-                   NULL;
+    void * stack = NULL;
+    int ret = alloc_anon_vma(&stack, size + protect_size,
+                             PROT_READ|PROT_WRITE, flags, "stack");
 
-    if (user)
-        stack = (void *) DkVirtualMemoryAlloc(stack, size + protect_size,
-                                0, PAL_PROT_READ|PAL_PROT_WRITE);
-    else
-        stack = system_malloc(size + protect_size);
-
-    if (!stack)
+    if (ret < 0)
         return NULL;
 
     ADD_PROFILE_OCCURENCE(alloc_stack, size + protect_size);
     INC_PROFILE_OCCURENCE(alloc_stack_count);
 
-    if (protect_size &&
-        !DkVirtualMemoryProtect(stack, protect_size, PAL_PROT_NONE))
-        return NULL;
+    if (protect_size)
+        protect_vma(stack, protect_size, PROT_NONE, flags);
 
     stack += protect_size;
-
-    if (user) {
-        if (bkeep_mmap(stack, size, PROT_READ|PROT_WRITE,
-                       STACK_FLAGS, NULL, 0, "stack") < 0)
-            return NULL;
-
-        if (protect_size &&
-            bkeep_mmap(stack - protect_size, protect_size, 0,
-                       STACK_FLAGS, NULL, 0, NULL) < 0)
-            return NULL;
-    }
-
     debug("allocated stack at %p (size = %d)\n", stack, size);
     return stack;
 }
@@ -445,29 +427,27 @@ static void __free (void * mem)
 
 int init_manifest (PAL_HANDLE manifest_handle)
 {
-    void * addr;
+    void * addr = NULL;
     unsigned int size;
 
     if (PAL_CB(manifest_preload.start)) {
         addr = PAL_CB(manifest_preload.start);
         size = PAL_CB(manifest_preload.end) - PAL_CB(manifest_preload.start);
+        bkeep_mmap(addr, ALIGN_UP(size), PROT_READ,
+                   MAP_PRIVATE|MAP_ANONYMOUS|VMA_INTERNAL,
+                   NULL, 0, "manifest");
     } else {
         PAL_STREAM_ATTR attr;
         if (!DkStreamAttributesQuerybyHandle(manifest_handle, &attr))
             return -PAL_ERRNO;
 
         size = attr.pending_size;
-        addr = (void *) DkStreamMap(manifest_handle, NULL,
-                                  PAL_PROT_READ, 0,
-                                  ALIGN_UP(size));
+        int ret = alloc_file_vma(manifest_handle, &addr, ALIGN_UP(size),
+                                 PROT_READ, VMA_INTERNAL, NULL, 0, "manifest");
 
-        if (!addr)
-            return -PAL_ERRNO;
+        if (ret < 0)
+            return ret;
     }
-
-    bkeep_mmap(addr, ALIGN_UP(size), PROT_READ,
-               MAP_PRIVATE|MAP_ANONYMOUS|VMA_INTERNAL, NULL, 0,
-               "manifest");
 
     root_config = malloc(sizeof(struct config_store));
     root_config->raw_data = addr;

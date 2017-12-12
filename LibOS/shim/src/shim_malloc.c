@@ -149,9 +149,7 @@ static struct shim_heap * __alloc_enough_heap (size_t size)
 void * __system_malloc (size_t size)
 {
     size_t alloc_size = ALIGN_UP(size);
-    void *addr, *addr_new;
-    
-    lock(shim_heap_lock);
+    void * addr = NULL;
 
     if (vmas_initialized) {
         /* If vmas are initialized, we need to request a free address range
@@ -160,17 +158,12 @@ void * __system_malloc (size_t size)
          * pattern.  It is not safe to just call DkVirtualMemoryAlloc directly
          * without reserving the vma region first.
          */
-        int flags = MAP_PRIVATE|MAP_ANONYMOUS|VMA_INTERNAL;
-        addr = get_unmapped_vma(alloc_size, flags);
-        if (!addr) return NULL;
-        addr_new = (void *) DkVirtualMemoryAlloc(addr, alloc_size, 0,
-                                                 PAL_PROT_WRITE|PAL_PROT_READ);
-        if (!addr_new) return NULL;
-        assert (addr == addr_new);
-        bkeep_mmap(addr, alloc_size, PROT_READ|PROT_WRITE,
-                   flags, NULL, 0, NULL);
+        int ret = alloc_anon_vma(&addr, alloc_size, PROT_READ|PROT_WRITE,
+                                 VMA_INTERNAL, "heap");
+        if (ret < 0)
+            return NULL;
     } else {
-
+        lock(shim_heap_lock);
         struct shim_heap * heap = __alloc_enough_heap(alloc_size);
 
         if (!heap) {
@@ -180,31 +173,22 @@ void * __system_malloc (size_t size)
 
         addr = heap->current;
         heap->current += alloc_size;
+        unlock(shim_heap_lock);
     }
-
-    unlock(shim_heap_lock);
 
     return addr;
 }
 
 void __system_free (void * addr, size_t size)
 {
-    int in_reserved_area = 0;
-    DkVirtualMemoryFree(addr, ALIGN_UP(size));
-    int flags = VMA_INTERNAL;
-    for (int i = 0 ; i < MAX_SHIM_HEAP_AREAS ; i++)
-        if (shim_heap_areas[i].start) {
-            /* Here we assume that any allocation from the 
-             * shim_heap_area is a strict inclusion.  Allocations
-             * cannot partially overlap.
-             */
-            if (addr >= shim_heap_areas[i].start
-                && addr <= shim_heap_areas[i].end)
-                in_reserved_area = 1;
-        }
-    
-    if (! in_reserved_area)
-        bkeep_munmap(addr, ALIGN_UP(size), &flags);
+    void * free_start = ALIGN_DOWN(addr);
+    void * free_end = ALIGN_UP(addr + size);
+
+    if (vmas_initialized) {
+        free_vma(free_start, free_end - free_start, VMA_INTERNAL);
+    } else {
+        DkVirtualMemoryFree(free_start, free_end - free_start);
+    }
 }
 
 int init_heap (void)

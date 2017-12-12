@@ -43,7 +43,6 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
 {
     struct shim_handle * hdl = NULL;
     long ret = -ENOMEM;
-    bool reserved = false;
 
     if (addr + length < addr) {
         return (void *) -EINVAL;
@@ -53,8 +52,6 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
 
     if (flags & MAP_32BIT)
         return (void *) -ENOSYS;
-
-    int pal_alloc_type = 0;
 
     if ((flags & MAP_FIXED) || addr) {
         struct shim_vma * tmp = NULL;
@@ -68,17 +65,6 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
         }
     }
 
-    if (!addr) {
-        addr = get_unmapped_vma(ALIGN_UP(length), flags);
-
-        if (addr) {
-            reserved = true;
-            // Approximate check only, to help root out bugs.
-            void * cur_stack = current_stack();
-            assert(cur_stack < addr || cur_stack > addr + length);
-        }
-    }
-
     void * mapped = ALIGN_DOWN((void *) addr);
     void * mapped_end = ALIGN_UP((void *) addr + length);
 
@@ -86,71 +72,49 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
     length = mapped_end - mapped;
 
     if (flags & MAP_ANONYMOUS) {
-        addr = (void *) DkVirtualMemoryAlloc(addr, length, pal_alloc_type,
-                                             PAL_PROT(prot, 0));
-
-        if (!addr) {
-            ret = (PAL_NATIVE_ERRNO == PAL_ERROR_DENIED) ? -EPERM : -PAL_ERRNO;
-            goto free_reserved;
-        }
+        ret = alloc_anon_vma(&addr, length, prot, flags, NULL);
+        if (ret < 0)
+            goto err;
 
         ADD_PROFILE_OCCURENCE(mmap, length);
     } else {
         if (fd < 0) {
             ret = -EINVAL;
-            goto free_reserved;
+            goto err;
         }
 
         hdl = get_fd_handle(fd, NULL, NULL);
         if (!hdl) {
             ret = -EBADF;
-            goto free_reserved;
+            goto err;
         }
 
         if (!hdl->fs || !hdl->fs->fs_ops || !hdl->fs->fs_ops->mmap) {
-            put_handle(hdl);
             ret = -ENODEV;
-            goto free_reserved;
+            goto err;
         }
 
-        if ((ret = hdl->fs->fs_ops->mmap(hdl, &addr, length, PAL_PROT(prot, flags),
-                                         flags, offset)) < 0) {
-            put_handle(hdl);
-            goto free_reserved;
-        }
+        if ((ret = hdl->fs->fs_ops->mmap(hdl, &addr, length, prot, flags,
+                                         offset)) < 0)
+            goto err;
     }
 
-    if (addr != mapped) {
-        mapped = ALIGN_DOWN((void *) addr);
-        mapped_end = ALIGN_UP((void *) addr + length);
-    }
-
-    ret = bkeep_mmap((void *) mapped, mapped_end - mapped, prot,
-                     flags, hdl, offset, NULL);
-    assert(!ret);
     if (hdl)
         put_handle(hdl);
     return addr;
 
-free_reserved:
-    if (reserved)
-        bkeep_munmap((void *) mapped, mapped_end - mapped, &flags);
+err:
+    if (hdl)
+        put_handle(hdl);
     return (void *) ret;
 }
 
 int shim_do_mprotect (void * addr, size_t len, int prot)
 {
-    uintptr_t mapped = ALIGN_DOWN((uintptr_t) addr);
-    uintptr_t mapped_end = ALIGN_UP((uintptr_t) addr + len);
-    int flags = 0;
+    void * mapped = ALIGN_DOWN(addr);
+    void * mapped_end = ALIGN_UP(addr + len);
 
-    if (bkeep_mprotect((void *) mapped, mapped_end - mapped, prot, &flags) < 0)
-        return -EACCES;
-
-    if (!DkVirtualMemoryProtect((void *) mapped, mapped_end - mapped, prot))
-        return -PAL_ERRNO;
-
-    return 0;
+    return protect_vma(mapped, mapped_end - mapped, prot, 0);
 }
 
 int shim_do_munmap (void * addr, size_t len)
@@ -165,13 +129,10 @@ int shim_do_munmap (void * addr, size_t len)
         return -EFAULT;
     }
 
-    uintptr_t mapped = ALIGN_DOWN((uintptr_t) addr);
-    uintptr_t mapped_end = ALIGN_UP((uintptr_t) addr + len);
-    int flags = 0;
+    put_vma(tmp);
 
-    if (bkeep_munmap((void *) mapped, mapped_end - mapped, &flags) < 0)
-        return -EACCES;
+    void * mapped = ALIGN_DOWN(addr);
+    void * mapped_end = ALIGN_UP(addr + len);
 
-    DkVirtualMemoryFree((void *) mapped, mapped_end - mapped);
-    return 0;
+    return free_vma((void *) mapped, mapped_end - mapped, 0);
 }

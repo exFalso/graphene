@@ -38,6 +38,7 @@
 
 unsigned long mem_max_npages __attribute_migratable = DEFAULT_MEM_MAX_NPAGES;
 
+static void * user_addr_top, * user_addr_bottom;
 static void * heap_top, * heap_bottom;
 
 #define VMA_MGR_ALLOC   64
@@ -122,20 +123,20 @@ int init_vma (void)
         return -ENOMEM;
     }
 
-    debug("User space range given from PAL: %p-%p\n",
-          (void *) PAL_CB(user_address.start),
-          (void *) PAL_CB(user_address.end));
+    user_addr_bottom = (void *) PAL_CB(user_address.start);
+    user_addr_top    = (void *) PAL_CB(user_address.end);
 
-    heap_bottom = (void *) PAL_CB(user_address.start);
+    debug("User space range given from PAL: %p-%p\n",
+          user_addr_bottom, user_addr_top);
+
+    heap_bottom = user_addr_bottom;
     if (heap_bottom + DEFAULT_HEAP_MIN_SIZE > PAL_CB(executable_range.start)
         && heap_bottom < PAL_CB(executable_range.end)
         && heap_top > PAL_CB(executable_range.start))
         heap_bottom = (void *) ALIGN_UP(PAL_CB(executable_range.end));
 
-    debug("setting initial heap to %p-%p\n", heap_bottom,
-          (void *) PAL_CB(user_address.end));
-
-    __set_heap_top(heap_bottom, (void *) PAL_CB(user_address.end));
+    debug("setting initial heap to %p-%p\n", heap_bottom, user_addr_top);
+    __set_heap_top(heap_bottom, user_addr_top);
 
     bkeep_shim_heap();
     create_lock(vma_list_lock);
@@ -404,7 +405,7 @@ static int __bkeep_munmap (void * addr, uint64_t length, const int * flags)
 {
     struct shim_vma * tmp, * n;
 
-    debug("bkeep_unmmap: %p-%p\n", addr, addr + length);
+    debug("bkeep_munmap: %p-%p\n", addr, addr + length);
 
     listp_for_each_entry_safe(tmp, n, &vma_list, list) {
         if (test_vma_equal (tmp, addr, length)) {
@@ -684,8 +685,20 @@ static void __set_heap_top (void * bottom, void * top)
     debug("heap top adjusted to %p\n", heap_top);
 }
 
-void * get_unmapped_vma (uint64_t length, int flags)
+void * get_unmapped_vma (uint64_t length, int prot, int flags,
+                         const char * comment)
 {
+    bool internal = flags & VMA_INTERNAL;
+    void * addr_max = user_addr_top;
+
+#ifdef MAP_32BIT
+    if ((flags & MAP_32BIT) && addr_max > (void *) (1ULL << 32)) {
+        addr_max = (void *) (1ULL << 32);
+        if (addr_max <= user_addr_bottom)
+            return NULL;
+    }
+#endif
+
     struct shim_vma * new = get_new_vma(), * prev = NULL;
     if (!new)
         return NULL;
@@ -694,31 +707,36 @@ void * get_unmapped_vma (uint64_t length, int flags)
 
     __check_delayed_bkeep();
 
-    if (heap_top - heap_bottom < length) {
-        debug("current heap %p-%p is not enough for allocating %lld bytes\n",
-              heap_bottom, heap_top, length);
+    if (addr_max - user_addr_bottom < length) {
+        debug("user space (%p-%p) is not enough for %lld bytes\n",
+              user_addr_bottom, addr_max, length);
         unlock(vma_list_lock);
         put_vma(new);
         return NULL;
     }
 
-    debug("find unmapped vma between %p-%p\n", heap_bottom, heap_top);
-
     do {
-        int found = 0;
-        new->addr   = heap_top - length;
+        bool found = false;
+
+        /* for internal vma, allocate from the top of whole user address;
+           otherwise, allocate from the top of user heap. */
+        if (internal)
+            new->addr = addr_max - length;
+        else
+            new->addr = (heap_top < addr_max ? heap_top : addr_max) - length;
+
         new->length = length;
-        new->flags  = flags|VMA_UNMAPPED;
-        new->prot   = PROT_NONE;
+        new->prot   = prot;
+        new->flags  = internal ? (flags|VMA_INTERNAL) : flags;
 
         listp_for_each_entry_reverse(prev, &vma_list, list) {
             if (new->addr >= prev->addr + prev->length) {
-                found = 1;
+                found = true;
                 break;
             }
 
             if (new->addr < heap_bottom) {
-                found = 1;
+                found = true;
                 break;
             }
 
@@ -742,24 +760,133 @@ void * get_unmapped_vma (uint64_t length, int flags)
             break;
         }
 
+        if (internal) {
+            if (new->addr < user_addr_bottom) {
+                unlock(vma_list_lock);
+                put_vma(new);
+                return NULL;
+            }
+            break;
+        }
+
         if (new->addr < heap_bottom) {
-            if (heap_top == PAL_CB(user_address.end)) {
+            if (heap_top >= addr_max) {
                 unlock(vma_list_lock);
                 put_vma(new);
                 return NULL;
             } else {
-                __set_heap_top(heap_top, (void *) PAL_CB(user_address.end));
+                __set_heap_top(heap_top, user_addr_top);
                 new->addr = NULL;
             }
         }
     } while (!new->addr);
 
     assert(!prev || prev->addr + prev->length <= new->addr);
+    __set_comment(new, comment);
     get_vma(new);
     listp_add_after(new, prev, &vma_list, list);
     debug("get unmapped: %p-%p\n", new->addr, new->addr + new->length);
     unlock(vma_list_lock);
     return new->addr;
+}
+
+int alloc_anon_vma (void ** paddr, uint64_t length, int prot, int flags,
+                    const char * comment)
+{
+    void * addr = *paddr, * alloc_addr = NULL;
+    int pal_alloc_type = 0; /* not used for now */
+    int pal_prot = PAL_PROT(prot, 0);
+
+    assert(ALIGNED(addr));
+    assert(ALIGNED(length));
+
+    /* force */
+    flags |= MAP_PRIVATE|MAP_ANONYMOUS;
+    if (addr) {
+        bkeep_mmap(addr, length, prot, flags, NULL, 0, comment);
+    } else {
+        addr = get_unmapped_vma(length, prot, flags, comment);
+        if (!addr)
+            return -ENOMEM;
+    }
+
+    alloc_addr = (void *) DkVirtualMemoryAlloc(addr, length,
+                                               pal_alloc_type, pal_prot);
+
+    if (!alloc_addr) {
+        bkeep_munmap(addr, length, &flags);
+        return -PAL_ERRNO;
+    }
+
+    if (alloc_addr != addr) {
+        debug("host return different address from reserved memory (%p)",
+              alloc_addr);
+        bkeep_munmap(addr, length, &flags);
+        bkeep_mmap(alloc_addr, length, prot, flags, NULL, 0, comment);
+    }
+
+    *paddr = alloc_addr;
+    return 0;
+}
+
+int alloc_file_vma (PAL_HANDLE palhdl, void ** paddr, uint64_t length,
+                    int prot, int flags, struct shim_handle * hdl,
+                    uint64_t offset, const char * comment)
+{
+    void * addr = *paddr, * alloc_addr = NULL;
+    int pal_prot = PAL_PROT(prot, flags);
+
+    assert(ALIGNED(addr));
+    assert(ALIGNED(length));
+    assert(ALIGNED(offset));
+
+    if (addr) {
+        bkeep_mmap(addr, length, prot, flags, hdl, offset, comment);
+    } else {
+        addr = get_unmapped_vma(length, prot, flags, comment);
+        if (!addr)
+            return -ENOMEM;
+    }
+
+    alloc_addr = (void *) DkStreamMap(palhdl, addr, pal_prot, offset, length);
+
+    if (!alloc_addr) {
+        bkeep_munmap(addr, length, &flags);
+        return -PAL_ERRNO;
+    }
+
+    if (alloc_addr != addr) {
+        debug("host return different address from reserved memory (%p)",
+              alloc_addr);
+        bkeep_munmap(addr, length, &flags);
+        bkeep_mmap(alloc_addr, length, prot, flags, hdl, offset, comment);
+    }
+
+    *paddr = alloc_addr;
+    return 0;
+}
+
+int protect_vma (void * addr, uint64_t length, int prot, int flags)
+{
+    assert(ALIGNED(addr));
+    assert(ALIGNED(length));
+
+    if (bkeep_mprotect(addr, length, prot, &flags) < 0)
+        return -EACCES;
+
+    return DkVirtualMemoryProtect(addr, length, prot) ? 0 : -PAL_ERRNO;
+}
+
+int free_vma (void * addr, uint64_t length, int flags)
+{
+    assert(ALIGNED(addr));
+    assert(ALIGNED(length));
+
+    if (bkeep_munmap(addr, length, &flags) < 0)
+        return -EACCES;
+
+    DkVirtualMemoryFree(addr, length);
+    return 0;
 }
 
 #define NTRIES  4
@@ -770,7 +897,7 @@ void * get_unmapped_vma_for_cp (uint64_t length)
     if (!new)
         return NULL;
 
-    if (length > PAL_CB(user_address.end) - PAL_CB(user_address.start)) {
+    if (length > user_addr_top - user_addr_bottom) {
         debug("user space is not enough for allocating %lld bytes\n", length);
         return NULL;
     }
@@ -779,14 +906,15 @@ void * get_unmapped_vma_for_cp (uint64_t length)
 
     __check_delayed_bkeep();
 
-    uint64_t top = (uint64_t) PAL_CB(user_address.end) - length;
+    uint64_t top = (uint64_t) user_addr_top - length;
     uint64_t bottom = (uint64_t) heap_top;
     int flags = MAP_ANONYMOUS|VMA_UNMAPPED|VMA_INTERNAL;
     void * addr;
 
     if (bottom >= top) {
         unlock(vma_list_lock);
-        return get_unmapped_vma(length, flags);
+        return get_unmapped_vma(length, PROT_READ|PROT_WRITE, flags,
+                                "checkpoint");
     }
 
     debug("find unmapped vma between %p-%p\n", bottom, top);

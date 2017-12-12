@@ -621,11 +621,8 @@ static int chroot_flush (struct shim_handle * hdl)
         file->mapbuf = NULL;
         unlock(hdl->lock);
 
-        if (mapbuf) {
-            DkStreamUnmap(mapbuf, mapsize);
-            int flags = VMA_INTERNAL;
-            bkeep_munmap(mapbuf, mapsize, &flags);
-        }
+        if (mapbuf)
+            free_vma(mapbuf, mapsize, VMA_INTERNAL);
     }
 
     return 0;
@@ -640,33 +637,28 @@ static inline int __map_buffer (struct shim_handle * hdl, int size)
             file->marker + size <= file->mapoffset + file->mapsize)
             return 0;
 
-        DkStreamUnmap(file->mapbuf, file->mapsize);
-        int flags = VMA_INTERNAL;
-        bkeep_munmap(file->mapbuf, file->mapsize, &flags);
-
+        free_vma(file->mapbuf, file->mapsize, VMA_INTERNAL);
         file->mapbuf    = NULL;
         file->mapoffset = 0;
     }
 
     /* second, reallocate the buffer */
     int bufsize = file->mapsize ? : FILE_BUFMAP_SIZE;
-    int prot = PAL_PROT_READ;
+    int prot = PROT_READ;
     unsigned long mapoff = file->marker & ~(bufsize - 1);
     unsigned long maplen = bufsize;
 
     if (hdl->acc_mode & MAY_WRITE)
-        prot |= PAL_PROT_WRITE;
+        prot |= PROT_WRITE;
 
     while (mapoff + maplen < file->marker + size)
         maplen *= 2;
 
-    void * mapbuf =
-        (void *) DkStreamMap(hdl->pal_handle, NULL, prot, mapoff, maplen);
-    if (!mapbuf)
-        return -PAL_ERRNO;
-
-    bkeep_mmap(mapbuf, maplen, prot, MAP_FILE|MAP_SHARED|VMA_INTERNAL,
-               hdl, mapoff, NULL);
+    void * mapbuf;
+    int ret = alloc_file_vma(hdl->pal_handle, &mapbuf, maplen, prot,
+                             MAP_SHARED|VMA_INTERNAL, NULL, mapoff, "chroot");
+    if (ret < 0)
+        return -ret;
 
     file->mapbuf    = mapbuf;
     file->mapoffset = mapoff;
@@ -845,8 +837,6 @@ static int chroot_mmap (struct shim_handle * hdl, void ** addr, size_t size,
     if (NEED_RECREATE(hdl) && (ret = chroot_recreate(hdl)) < 0)
         return ret;
 
-    int pal_prot = PAL_PROT(prot, flags);
-
 #if MAP_FILE == 0
     if (flags & MAP_ANONYMOUS)
 #else
@@ -854,14 +844,8 @@ static int chroot_mmap (struct shim_handle * hdl, void ** addr, size_t size,
 #endif
         return -EINVAL;
 
-    void * alloc_addr =
-        (void *) DkStreamMap(hdl->pal_handle, *addr, pal_prot, offset, size);
-
-    if (!alloc_addr)
-        return -PAL_ERRNO;
-
-    *addr = alloc_addr;
-    return 0;
+    return alloc_file_vma(hdl->pal_handle, addr, size, prot, flags,
+                          hdl, offset, NULL);
 }
 
 static int chroot_seek (struct shim_handle * hdl, off_t offset, int wence)

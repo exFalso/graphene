@@ -108,8 +108,20 @@ int lookup_overlap_vma (const void * addr, uint64_t len, struct shim_vma ** vma)
 
 struct shim_vma * next_vma (struct shim_vma * vma);
 
-void * get_unmapped_vma (uint64_t len, int flags);
+void * get_unmapped_vma (uint64_t len, int prot, int flags,
+                         const char * comment);
 void * get_unmapped_vma_for_cp (uint64_t len);
+
+int alloc_anon_vma (void ** paddr, uint64_t length, int prot, int flags,
+                    const char * comment);
+
+int alloc_file_vma (PAL_HANDLE palhdl, void ** paddr, uint64_t length,
+                    int prot, int flags, struct shim_handle * hdl,
+                    uint64_t offset, const char * comment);
+
+int protect_vma (void * addr, uint64_t length, int prot, int flags);
+
+int free_vma (void * addr, uint64_t length, int flags);
 
 int dump_all_vmas (struct shim_thread * thread, char * buf, uint64_t size);
 

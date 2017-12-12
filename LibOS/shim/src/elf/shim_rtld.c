@@ -519,14 +519,9 @@ call_lose:
         ElfW(Addr) mappref = 0;
 
         if (type == OBJECT_LOAD) {
-            if (addr)
-                mappref = (ElfW(Addr)) c->mapstart + (ElfW(Addr)) addr;
-            else
-                mappref = (ElfW(Addr)) get_unmapped_vma(ALIGN_UP(maplength),
-                                            MAP_PRIVATE|MAP_ANONYMOUS);
+            void * mapaddr = addr ? c->mapstart + addr : NULL;
 
-            /* Remember which part of the address space this object uses.  */
-            errval = (*mmap) (file, (void **) &mappref, ALIGN_UP(maplength),
+            errval = (*mmap) (file, &mapaddr, ALIGN_UP(maplength),
                               c->prot, c->flags|MAP_PRIVATE, c->mapoff);
 
             if (__builtin_expect (errval < 0, 0)) {
@@ -534,6 +529,8 @@ map_error:
                 errstring = "failed to map segment from shared object";
                 goto call_lose;
             }
+
+            mappref = (ElfW(Addr)) mapaddr;
         } else {
             mappref = (ElfW(Addr)) addr;
         }

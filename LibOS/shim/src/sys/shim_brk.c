@@ -97,20 +97,15 @@ int init_brk_region (void * brk_region)
             brk_region = vma->addr + vma->length;
             put_vma(vma);
         }
-    } else {
-        brk_region = get_unmapped_vma(brk_max_size,
-                                      MAP_PRIVATE|MAP_ANONYMOUS);
-        if (!brk_region)
-            return -ENOMEM;
     }
 
     void * end_brk_region = NULL;
 
     // brk region assigned
-    brk_region = (void *) DkVirtualMemoryAlloc(brk_region, brk_max_size, 0,
-                                    PAL_PROT_READ|PAL_PROT_WRITE);
-    if (!brk_region)
-        return -ENOMEM;
+    int ret = alloc_anon_vma(&brk_region, brk_max_size, PROT_READ|PROT_WRITE,
+                             VMA_UNMAPPED, NULL);
+    if (ret < 0)
+        return ret;
 
     ADD_PROFILE_OCCURENCE(brk, brk_max_size);
     INC_PROFILE_OCCURENCE(brk_count);
@@ -126,11 +121,7 @@ int init_brk_region (void * brk_region)
           brk_region + brk_max_size);
 
     bkeep_mmap(brk_region, BRK_SIZE, PROT_READ|PROT_WRITE,
-               MAP_ANONYMOUS|MAP_PRIVATE, NULL, 0, "[heap]");
-    bkeep_mmap(end_brk_region, brk_max_size - BRK_SIZE,
-               PROT_READ|PROT_WRITE,
-               MAP_ANONYMOUS|MAP_PRIVATE|VMA_UNMAPPED,
-               NULL, 0, NULL);
+               MAP_ANONYMOUS|MAP_PRIVATE, NULL, 0, "heap");
 
     return 0;
 }
@@ -220,12 +211,16 @@ BEGIN_RS_FUNC(brk)
 
     debug("brk area: %p - %p\n", region.brk_start, region.brk_end);
 
-    unsigned long brk_size = region.brk_end - region.brk_start;
+    uint64_t brk_size = region.brk_end - region.brk_start;
 
     if (brk_size < brk_max_size) {
-        void * brk_region = (void *) DkVirtualMemoryAlloc(region.brk_end,
-                                            brk_max_size - brk_size, 0,
-                                            PAL_PROT_READ|PAL_PROT_WRITE);
+        void * brk_region = region.brk_end;
+        int ret = alloc_anon_vma(&brk_region, brk_max_size - brk_size,
+                                 PROT_READ|PROT_WRITE, VMA_UNMAPPED, NULL);
+
+        if (ret < 0)
+            return ret;
+
         if (brk_region != region.brk_end)
             return -EACCES;
 
@@ -235,10 +230,6 @@ BEGIN_RS_FUNC(brk)
         debug("brk reserved area: %p - %p\n", region.brk_end,
               region.brk_start + brk_max_size);
 
-        bkeep_mmap(region.brk_end, brk_max_size - brk_size,
-                   PROT_READ|PROT_WRITE,
-                   MAP_ANONYMOUS|MAP_PRIVATE|VMA_UNMAPPED, NULL, 0,
-                   NULL);
     }
 
     DEBUG_RS("current=%p,region=%p-%p", region.brk_current, region.brk_start,
