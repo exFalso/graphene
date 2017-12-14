@@ -300,29 +300,50 @@ ret_exception:
 static void illegal_upcall (PAL_PTR event, PAL_NUM arg, PAL_CONTEXT * context)
 {
     if (IS_INTERNAL_TID(get_cur_tid()) || is_internal(context)) {
-internal:
         internal_fault("Internal illegal fault", arg, context);
         pause();
         goto ret_exception;
     }
 
-    struct shim_vma * vma = NULL;
+    uint8_t * pc = (void *) context->IP;
 
-    if (!(lookup_supervma((void *) arg, 0, &vma)) &&
-        !(vma->flags & VMA_INTERNAL)) {
-        if (context)
-            debug("illegal instruction at %p\n", context->IP);
+    debug("illegal instruction at %p\n", pc);
 
-        if (vma)
-            put_vma(vma);
+#ifdef __x86_64__
+    /*
+     * static (hard-coded) system call interception:
+     *   if the illegal instruction is a "syscall" (0f 05), try to process
+     *   the exception as a static system call.
+     *   (1) placing register values
+     *   (2) call syscalldb
+     *   (3) setting RAX back to the exception context
+     */
+    if (pc[-2] == 0x0f && pc[-1] == 0x05) {
+        debug("caught a static syscall (syscall no = %d)\n", context->rax);
 
-        deliver_signal(ALLOC_SIGINFO(SIGILL, ILL_ILLOPC, si_addr, (void *) arg), context);
-    } else {
-        if (vma)
-            put_vma(vma);
+        asm volatile("movq %5, %%r10\n\t"
+                     "movq %6, %%r8\n\t"
+                     "movq %7, %%r9\n\t"
 
-        goto internal;
+                     "subq $128, %%rsp\n\t"
+                     "movq syscalldb@GOTPCREL(%%rip), %%rbx\n\t"
+                     "callq *%%rbx\n\t"
+                     "addq $128, %%rsp\n\t"
+
+                     : "+a"(context->rax)
+                     : "D"(context->rdi),
+                       "S"(context->rsi),
+                       "d"(context->rdx),
+                       "r"(context->r10),
+                       "r"(context->r8),
+                       "r"(context->r9)
+                     : "memory", "r10", "r8", "r9", "rbx");
+
+        goto ret_exception;
     }
+#endif
+
+    deliver_signal(ALLOC_SIGINFO(SIGILL, ILL_ILLOPC, si_addr, pc), context);
 
 ret_exception:
     DkExceptionReturn(event);
