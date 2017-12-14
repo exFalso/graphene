@@ -494,13 +494,20 @@ int init_trusted_files (void)
         }
     }
 
+no_trusted:
+
+    cfgsize = get_config_entries_size(store, "sgx.trusted_libs");
+    if (cfgsize <= 0)
+        goto no_trusted_libs;
+
+    cfgbuf = __alloca(cfgsize);
     nuris = get_config_entries(pal_state.root_config, "sgx.trusted_libs",
-                               cfgbuf);
+                               cfgbuf, cfgsize);
     if (nuris) {
         char key[CONFIG_MAX], uri[CONFIG_MAX];
         char * k = cfgbuf, * tmp;
 
-        tmp = strcpy_static(key, "sgx.trusted_libs.", CONFIG_MAX);
+        tmp = stpncpy_static(key, "sgx.trusted_libs.", CONFIG_MAX);
 
         for (int i = 0 ; i < nuris ; i++) {
             len = strlen(k);
@@ -515,7 +522,7 @@ int init_trusted_files (void)
         }
     }
 
-no_trusted:
+no_trusted_libs:
 
     cfgsize = get_config_entries_size(store, "sgx.allowed_files");
     if (cfgsize < 0)
