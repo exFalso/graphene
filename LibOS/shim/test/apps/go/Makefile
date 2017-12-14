@@ -1,5 +1,7 @@
 GO_DIR = go-1.9.2
 GOBOOTSTRAP_DIR = go-1.4
+GOBOOTSTRAP_TAR = go1.4.3.linux-amd64.tar.gz
+GOBOOTSTRAP_URL = https://storage.googleapis.com/golang
 
 CFLAGS=-g
 export CFLAGS
@@ -22,8 +24,8 @@ $(GO_DIR)/bin/go: $(GO_DIR)/src/make.bash $(GOBOOTSTRAP_DIR)/bin/go
 		GOROOT_BOOTSTRAP=$(abspath $(GOBOOTSTRAP_DIR)) ./make.bash --no-banner
 
 $(GOBOOTSTRAP_DIR)/bin/go:
-	wget https://storage.googleapis.com/golang/go1.4.3.linux-amd64.tar.gz
-	tar -xzf go1.4.3.linux-amd64.tar.gz
+	wget $(GOBOOTSTRAP_URL)/$(GOBOOTSTRAP_TAR)
+	tar -xzf $(GOBOOTSTRAP_TAR)
 	mv go $(GOBOOTSTRAP_DIR)
 
 $(GO_DIR)/src/make.bash: $(GO_DIR).tar.gz
@@ -39,4 +41,4 @@ clean-tmp:
 	rm -f *.sgx *.sig *.token
 
 distclean: clean
-	rm -rf $(GO_DIR)
+	rm -rf $(GO_DIR) $(GOBOOTSTRAP_DIR) $(GOBOOTSTRAP_TAR)
